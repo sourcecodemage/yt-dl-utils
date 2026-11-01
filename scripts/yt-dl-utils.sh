@@ -231,6 +231,12 @@ function download_videos {
         --replace-in-metadata channel,title "\?" "" \
         --replace-in-metadata channel,title ":" "-" \
         --replace-in-metadata channel,title "\*" "" \
+        --replace-in-metadata "channel" "ö" "oe" \
+        --replace-in-metadata "channel" "ä" "ae" \
+        --replace-in-metadata "channel" "ü" "ue" \
+        --replace-in-metadata "channel" "ß" "ss" \
+        --replace-in-metadata "channel" "İ" "I" \
+        --replace-in-metadata "channel" "ş" "s" \
         -t "mkv" \
         --verbose \
         --write-info-json \
@@ -238,10 +244,18 @@ function download_videos {
         --write-thumbnail \
         --convert-thumbnails jpg \
         > "${LOG_STDOUT_FILE_PATH}" 2> "${LOG_STDERR_FILE_PATH}"
-
+    # update the inventory file after the download is complete
+    generate_inventory_file
+    # cound the number of videos in the library after the download is complete
     YOUTUBE_LIBRARY_COUNT_END=$(wc -l < "${DOWNLOAD_ARCHIVE_FILE}")
     printf "Post download: Your Youtube library has %s videos. %s were added in this run.\n\n" " ${YOUTUBE_LIBRARY_COUNT_END}" "$(( YOUTUBE_LIBRARY_COUNT_END - YOUTUBE_LIBRARY_COUNT_START ))"
 }
+
+function generate_inventory_file {
+    printf "Generating inventory file for library %s\n" "${HOME_DIR}"
+    "${FIND_FILE}" "${HOME_DIR}" -type f \( -name "*.mp4" -o -name "*.mkv" -o -name "*.webm" \) | sed -r 's/^.*\[(.*)\]\.(mp4|mkv|webm)$/\1/' | while read -r i;do echo "youtube ${i}";done > "${INVENTORY_FILE}"
+    printf "Inventory file for library %s created at %s\n\n" "${HOME_DIR}" "${INVENTORY_FILE}"
+}   
 
 # Downloads video metadata only for all existing videos
 function download_video_metadata {
@@ -301,13 +315,13 @@ function download_video_metadata {
 # generates download archive file from current video inventory
 function generate_download_archive {
     # Create inventory list
-    printf "Generating Download Archive for library %s\n" "${HOME_DIR}\n"
-    "${FIND_FILE}" "${HOME_DIR}" -type f \( -name "*.mp4" -o -name "*.mkv" -o -name "*.webm" \) | sed -r 's/^.*\[(.*)\]\.(mp4|mkv|webm)$/\1/' | while read -r i;do echo "youtube ${i}";done > "${INVENTORY_FILE}"
+    printf "Generating Download Archive for library %s\n" "${HOME_DIR}"
+    generate_inventory_file
     cp "${INVENTORY_FILE}" "${DOWNLOAD_ARCHIVE_FILE}"
     # add blacklist file to download archive to skip them
     cat "${BLACKLIST_FILE}" >> "${DOWNLOAD_ARCHIVE_FILE}"
     # add private and nonexistent files to download archive to skip them, since you cannot access them!
-    cat "${UNAVAILABLE_FILE}" >> "${DOWNLOAD_ARCHIVE_FILE}"
+    #cat "${UNAVAILABLE_FILE}" >> "${DOWNLOAD_ARCHIVE_FILE}"
     # Sanity check to ensure that the download archive file was created successfully
     if [[ ! -f "${DOWNLOAD_ARCHIVE_FILE}" || ! -s "${DOWNLOAD_ARCHIVE_FILE}" ]]; then
         printf "ERROR: Download archive file %s was not created successfully. Exiting...\n" "${DOWNLOAD_ARCHIVE_FILE}"
@@ -445,7 +459,7 @@ case "${ACTION}" in
         generate_download_archive
         set_batch_file
         download_videos
-        generate_nfo_files
+        # generate_nfo_files
         ;;
     download-video-metadata)
         printf "Action '%s' selected.\n" "${ACTION}"
@@ -456,14 +470,14 @@ case "${ACTION}" in
         fi
         set_batch_file
         download_video_metadata
-        generate_nfo_files
+        # generate_nfo_files
         ;;
     download-channel-metadata)
         printf "Action '%s' selected.\n" "${ACTION}"
         update_ytdlp
         set_batch_file
         download_channel_metadata
-        generate_nfo_files
+        # generate_nfo_files
         ;;
     *)  
         printf "Action not %s not recognized. Exiting...\n" "${ACTION}"
