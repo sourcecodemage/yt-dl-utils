@@ -50,6 +50,25 @@ Install recommended utilities
     go build ./dist/
     ```
 
+## Releases
+
+To publish a release, update `VERSION` to a new version such as `v0.1.0`, then commit and push that change:
+
+```bash
+git add VERSION
+git commit -m "Release v0.1.0"
+git push
+```
+
+Create and push a tag with the exact same value as `VERSION` to start the GitHub Actions release workflow:
+
+```bash
+git tag -a v0.1.0 -m "Release v0.1.0"
+git push origin v0.1.0
+```
+
+The workflow builds the release binaries and publishes them with checksums in the project's Releases tab. Use a new version for each release; tags must match `VERSION` exactly and existing tags cannot be reused.
+
 ## Useful Links
 
 - [yt-dlp project](https://github.com/yt-dlp/yt-dlp)
