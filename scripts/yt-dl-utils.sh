@@ -4,12 +4,12 @@
 # set -eo pipefail
 
 function cleanup {
-    if [[ ! -z FIND_FILE && -f ${FIND_FILE} ]]; then 
-        echo "$(${FIND_FILE} downloads -type d -empty -print | wc -l) empty directories found."
+    if [[ -n "${FIND_FILE:-}" && -f "${FIND_FILE}" ]]; then 
+        echo "$("${FIND_FILE}" "${TEMP_DIR}" -type d -empty -print | wc -l) empty directories found."
         # first delete .DS_Store files
-        ${FIND_FILE} downloads -type f -depth 1 -name ".DS_Store" -delete
+        "${FIND_FILE}" "${TEMP_DIR}" -type f -mindepth 1 -name ".DS_Store" -delete
         # then delete empty directories
-        ${FIND_FILE} downloads -type d -mindepth 1 -empty -delete
+        "${FIND_FILE}" "${TEMP_DIR}" -type d -mindepth 1 -empty -delete
         echo "Empty directories deleted."
     fi
     echo "$(date +"%Y%m%d_%H%M%S") END ${0} script completed."
@@ -43,7 +43,7 @@ function check_required_variables {
         printf '  - %s\n' "${missing[@]}"
         exit 1
     fi
-    printf "All required environment variables exist.\n"
+    printf "All required environment variables exist!\n\n"
 }
 
 
@@ -69,7 +69,7 @@ function check_required_directories {
         printf '  - %s\n' "${missing[@]}"
         exit 1
     fi
-    printf "All required directories exist.\n"
+    printf "All required directories exist!!\n\n"
 }
 
 function check_required_files {
@@ -100,31 +100,31 @@ function check_required_files {
 }
 
 function update_ytdlp {
-    PRE_VERSION=$(${YTDLP_FILE} --version)
+    PRE_VERSION=$("${YTDLP_FILE}" --version)
     printf "Updating %s with VERSION %s to latest nightly branch commit.\n" "${YTDLP_FILE}" "${PRE_VERSION}"
-    ${YTDLP_FILE} --update-to nightly
-    POST_VERSION=$(${YTDLP_FILE} --version)
+    "${YTDLP_FILE}" --update-to nightly
+    POST_VERSION=$("${YTDLP_FILE}" --version)
     printf "Updated %s from version %s to %s which is the latest nightly branch commit!\n\n" "${YTDLP_FILE}" "${PRE_VERSION}" "${POST_VERSION}"
 }
 
 function generate_channel_urls_file {
     printf "Generating fresh channel urls file at %s\n." "${CHANNEL_LIST_URLS}"
-    ${FIND_FILE} ${HOME_DIR} -type f -name "*.info.json" -exec jq '.channel_url' {} \; | sed 's/"//g' | grep "channel/UC" | sort | uniq > ${CHANNEL_LIST_URLS}
-    printf "Generated channel urls file at %s with %s entries\n\n!" "${CHANNEL_LIST_URLS}" "$(cat ${CHANNEL_LIST_URLS} | wc -l)"
+    "${FIND_FILE}" "${HOME_DIR}" -type f -name "*.info.json" -exec jq '.channel_url' {} \; | sed 's/"//g' | grep "channel/UC" | sort | uniq > "${CHANNEL_LIST_URLS}"
+    printf "Generated channel urls file at %s with %s entries\n\n!" "${CHANNEL_LIST_URLS}" "$(cat "${CHANNEL_LIST_URLS}" | wc -l)"
 }
 
 # download channel metadata including thumbnails
 function download_channel_metadata {
     printf "Downloading channel metadata for %s...\n" "${HOME_DIR}"
-    caffeinate ${YTDLP_FILE} \
-        --batch-file ${CHANNEL_LIST_URLS} \
+    caffeinate "${YTDLP_FILE}" \
+        --batch-file "${CHANNEL_LIST_URLS}" \
         --compat-options allow-unsafe-exec-expansion \
-        ${COOKIE_CMD} \
+        "${COOKIE_ARGS[@]}" \
         --write-thumbnail \
         --convert-thumbnails jpg \
         --write-info-json \
-        --paths 'home:${HOME_DIR}' \
-        --paths 'temp:${TEMP_DIR}' \
+        --paths home:"${HOME_DIR}" \
+        --paths temp:"${TEMP_DIR}" \
         --replace-in-metadata channel,title "/" "⧸" \
         --replace-in-metadata channel,title "\?" "" \
         --replace-in-metadata channel,title ":" "-" \
@@ -133,7 +133,7 @@ function download_channel_metadata {
         --verbose \
         --output "%(channel)s [%(channel_id)s]/%(title)s [%(channel_id)s]" \
         --playlist-items '0,0' \
-        >> ${LOG_STDOUT_FILE_PATH} 2>> ${LOG_STDERR_FILE_PATH}
+        >> "${LOG_STDOUT_FILE_PATH}" 2>> "${LOG_STDERR_FILE_PATH}"
     printf "Channel metadata for %s downloaded!\n\n" "${HOME_DIR}"
     
 }
@@ -141,25 +141,30 @@ function download_channel_metadata {
 # generates video and channel NFO files from info.json file data
 function generate_nfo_files {
     printf "Generating NFO files for %s...\n" "${HOME_DIR}"
-    go run main.go nfo --root-dir "${HOME_DIR}" 
+    ./bin/yt-dlp-utils nfo --root-dir "${HOME_DIR}" 
     printf "NFO files generated!\n\n"
 }
 
 function generate_wanted_list {
     printf "Generating Wanted list.\n"
-    if [[ ! -z ${WANTED_HOME_DIR} ]]; then
+    if [[ -n "${WANTED_HOME_DIR:-}" ]]; then
         # create wanted list
         printf "Generating Wanted list for wanted library %s\n" "${WANTED_HOME_DIR}"
-        ${FIND_FILE} "${WANTED_HOME_DIR}" -type f -name "*.mp4" -o -name "*.mkv" -o -name "*.webm" | sed -r 's/^.*\[(.*)\]\.(mp4|mkv|webm)$/\1/' | while read i;do echo "youtube ${i}";done > ${WANTED_LIST_FILE}
-
+        "${FIND_FILE}" "${WANTED_HOME_DIR}" -type f \( -name "*.mp4" -o -name "*.mkv" -o -name "*.webm" \) | sed -r 's/^.*\[(.*)\]\.(mp4|mkv|webm)$/\1/' | while read -r i;do echo "youtube ${i}";done > "${WANTED_LIST_FILE}"
         # Create download batch list that equals wanted list - inventory list - blacklist
         printf "Generating wanted batch list file  %s\n" "${WANTED_BATCH_LIST_FILE}"
-        grep -v -f ${BLACKLIST_FILE} ${WANTED_LIST_FILE} > ${WANTED_BATCH_LIST_FILE}
+        grep -v -f "${BLACKLIST_FILE}" "${WANTED_LIST_FILE}" > "${WANTED_BATCH_LIST_FILE}"
+        # validate that the wanted batch list file was created 
+        if [[ ! -f "${WANTED_BATCH_LIST_FILE}" || ! -s "${WANTED_BATCH_LIST_FILE}" ]]; then
+            printf "ERROR: Wanted batch list file %s was not created successfully. Exiting...\n" "${WANTED_BATCH_LIST_FILE}"
+            exit 1
+        fi
+
         # grep -v -f ${INVENTORY_FILE} ${WANTED_LIST_FILE}  | grep -v -f ${BLACKLIST_FILE} > ${WANTED_BATCH_LIST_FILE}
 
         # Convert batch list file to youtbe batch url list format for yt-dlp to consume
         printf "Generating wanted batch list urls file  %s\n" "${WANTED_BATCH_LIST_URLS}"
-        cat ${WANTED_BATCH_LIST_FILE} | sed -r 's/^youtube (.*)$/https:\/\/www.youtube.com\/watch?v=\1/' > ${WANTED_BATCH_LIST_URLS}
+        sed -r 's/^youtube (.*)$/https:\/\/www.youtube.com\/watch?v=\1/' "${WANTED_BATCH_LIST_FILE}" > "${WANTED_BATCH_LIST_URLS}"
     fi 
 
     printf "Wanted list generated!\n\n"
@@ -169,13 +174,12 @@ function generate_wanted_list {
 function set_batch_file  {
     printf "Setting batch file...\n"
     # set the batch file to be used in this run
-    if [[ ! -z ${WANTED_HOME_DIR} ]]; then
-        export BATCH_FILE=${WANTED_BATCH_LIST_URLS}
+    if [[ -n "${WANTED_HOME_DIR:-}" ]]; then
+        export BATCH_FILE="${WANTED_BATCH_LIST_URLS}"
     else
-        export BATCH_FILE=${BATCH_LIST_URLS}
+        export BATCH_FILE="${BATCH_LIST_URLS}"
     fi
     printf "Batch file set to %s!\n\n" "${BATCH_FILE}"
-
 }
 
 # downloads youtube videos and metadata
@@ -184,21 +188,21 @@ function download_videos {
     printf "BATCH_FILE set to %s\n" "${BATCH_FILE}"
     printf "DOWNLOAD_ARCHIVE_FILE set to %s\n" "${DOWNLOAD_ARCHIVE_FILE}"
 
-    YOUTUBE_LIBRARY_COUNT_START=$(cat ${INVENTORY_FILE} | wc -l)
+    YOUTUBE_LIBRARY_COUNT_START=$(wc -l < "${INVENTORY_FILE}")
     printf "Before download: Your Youtube library has %s videos.\n" "${YOUTUBE_LIBRARY_COUNT_START}"
 
     # Download episodes
-    caffeinate ${YTDLP_FILE} \
+    caffeinate "${YTDLP_FILE}" \
         --add-metadata \
-        --batch-file ${BATCH_FILE} \
-        ${COOKIE_CMD} \
-        --download-archive ${DOWNLOAD_ARCHIVE_FILE}  \
+        --batch-file "${BATCH_FILE}" \
+        "${COOKIE_ARGS[@]}" \
+        --download-archive "${DOWNLOAD_ARCHIVE_FILE}"  \
         --write-subs \
         --sub-langs en \
         --embed-subs \
         --embed-chapters \
         --compat-options allow-unsafe-exec-expansion \
-        --ffmpeg-location ${FFMPEG_LOCATION}  \
+        --ffmpeg-location "${FFMPEG_LOCATION}"  \
         --exec "echo '%(channel_url)s' | grep -v -f ${CHANNEL_LIST_URLS} >> ${CHANNEL_LIST_URLS}" \
         --exec "${TOUCH_FILE} -t '%(upload_date)s0000' '%(filepath)s'" \
         --force-overwrites  \
@@ -220,8 +224,8 @@ function download_videos {
         --no-warnings \
         --no-write-playlist-metafiles \
         --output "%(channel)s [%(channel_id)s]/Season %(upload_date>%Y)s/%(channel)s - S%(upload_date>%Y)sE%(upload_date>%m%d)s%(timestamp>%H%M%S)s - %(title)s [%(id)s].%(ext)s" \
-        --paths home:${HOME_DIR} \
-        --paths temp:${TEMP_DIR}  \
+        --paths "home:${HOME_DIR}" \
+        --paths "temp:${TEMP_DIR}"  \
         --remux-video mkv \
         --replace-in-metadata channel,title "/" "⧸" \
         --replace-in-metadata channel,title "\?" "" \
@@ -232,11 +236,10 @@ function download_videos {
         --write-info-json \
         --embed-thumbnail \
         --write-thumbnail \
-        --convert-thumbnail jpg \
-        ${extra_args} \
-        > ${LOG_STDOUT_FILE_PATH} 2> ${LOG_STDERR_FILE_PATH}
+        --convert-thumbnails jpg \
+        > "${LOG_STDOUT_FILE_PATH}" 2> "${LOG_STDERR_FILE_PATH}"
 
-    YOUTUBE_LIBRARY_COUNT_END=$(cat ${DOWNLOAD_ARCHIVE_FILE} | wc -l)
+    YOUTUBE_LIBRARY_COUNT_END=$(wc -l < "${DOWNLOAD_ARCHIVE_FILE}")
     printf "Post download: Your Youtube library has %s videos. %s were added in this run.\n\n" " ${YOUTUBE_LIBRARY_COUNT_END}" "$(( YOUTUBE_LIBRARY_COUNT_END - YOUTUBE_LIBRARY_COUNT_START ))"
 }
 
@@ -246,16 +249,16 @@ function download_video_metadata {
     printf "BATCH_FILE set to %s\n" "${BATCH_FILE}"
     printf "DOWNLOAD_ARCHIVE_FILE set to %s\n" "${DOWNLOAD_ARCHIVE_FILE}"
 
-    caffeinate ${YTDLP_FILE} \
+    caffeinate "${YTDLP_FILE}" \
         --add-metadata \
-        --batch-file ${BATCH_FILE} \
-        ${COOKIE_CMD} \
+        --batch-file "${BATCH_FILE}" \
+        "${COOKIE_ARGS[@]}" \
         --write-subs \
         --sub-langs en \
         --embed-subs \
         --embed-chapters \
         --compat-options allow-unsafe-exec-expansion \
-        --ffmpeg-location ${FFMPEG_LOCATION}  \
+        --ffmpeg-location "${FFMPEG_LOCATION}"  \
         --exec "echo '%(channel_url)s' | grep -v -f ${CHANNEL_LIST_URLS} >> ${CHANNEL_LIST_URLS}" \
         --exec "${TOUCH_FILE} -t '%(upload_date)s0000' '%(filepath)s'" \
         --force-overwrites  \
@@ -278,8 +281,8 @@ function download_video_metadata {
         --no-warnings \
         --no-write-playlist-metafiles \
         --output "%(channel)s [%(channel_id)s]/Season %(upload_date>%Y)s/%(channel)s - S%(upload_date>%Y)sE%(upload_date>%m%d)s%(timestamp>%H%M%S)s - %(title)s [%(id)s].%(ext)s" \
-        --paths home:${HOME_DIR} \
-        --paths temp:${TEMP_DIR}  \
+        --paths "home:${HOME_DIR}" \
+        --paths "temp:${TEMP_DIR}"  \
         --remux-video mkv \
         --replace-in-metadata channel,title "/" "⧸" \
         --replace-in-metadata channel,title "\?" "" \
@@ -290,9 +293,8 @@ function download_video_metadata {
         --verbose \
         --write-info-json \
         --write-thumbnail \
-        --convert-thumbnail jpg \
-        ${extra_args} \
-        > ${LOG_STDOUT_FILE_PATH} 2> ${LOG_STDERR_FILE_PATH}
+        --convert-thumbnails jpg \
+        > "${LOG_STDOUT_FILE_PATH}" 2> "${LOG_STDERR_FILE_PATH}"
     printf "Video file metadata downloaded!\n\n"
 }
 
@@ -300,12 +302,18 @@ function download_video_metadata {
 function generate_download_archive {
     # Create inventory list
     printf "Generating Download Archive for library %s\n" "${HOME_DIR}\n"
-    ${FIND_FILE} "${HOME_DIR}" -type f -name "*.mp4" -o -name "*.mkv" -o -name "*.webm" | sed -r 's/^.*\[(.*)\]\.(mp4|mkv|webm)$/\1/' | while read i;do echo "youtube ${i}";done > ${INVENTORY_FILE}
-    cp ${INVENTORY_FILE} ${DOWNLOAD_ARCHIVE_FILE}
+    "${FIND_FILE}" "${HOME_DIR}" -type f \( -name "*.mp4" -o -name "*.mkv" -o -name "*.webm" \) | sed -r 's/^.*\[(.*)\]\.(mp4|mkv|webm)$/\1/' | while read -r i;do echo "youtube ${i}";done > "${INVENTORY_FILE}"
+    cp "${INVENTORY_FILE}" "${DOWNLOAD_ARCHIVE_FILE}"
     # add blacklist file to download archive to skip them
-    cat ${BLACKLIST_FILE} >> ${DOWNLOAD_ARCHIVE_FILE}
+    cat "${BLACKLIST_FILE}" >> "${DOWNLOAD_ARCHIVE_FILE}"
     # add private and nonexistent files to download archive to skip them, since you cannot access them!
-    cat ${UNAVAILABLE_FILE} >> ${DOWNLOAD_ARCHIVE_FILE}
+    cat "${UNAVAILABLE_FILE}" >> "${DOWNLOAD_ARCHIVE_FILE}"
+    # Sanity check to ensure that the download archive file was created successfully
+    if [[ ! -f "${DOWNLOAD_ARCHIVE_FILE}" || ! -s "${DOWNLOAD_ARCHIVE_FILE}" ]]; then
+        printf "ERROR: Download archive file %s was not created successfully. Exiting...\n" "${DOWNLOAD_ARCHIVE_FILE}"
+        exit 1
+    fi
+    
     # download archive is complete
     printf "Download archive file for library %s created at %s\n\n" "${HOME_DIR}" "${DOWNLOAD_ARCHIVE_FILE}"
 
@@ -331,7 +339,7 @@ function initialize_log_file {
     # printf -v LOG_STDERR_FILE_PATH "%s/%s_%s.stderr.log" "${LOG_DIR}" "${0##*/}" "${LOG_DATE}"
     printf -v LOG_STDOUT_FILE_PATH "%s/%s.stdout.log" "${LOG_DIR}" "${0##*/}"
     printf -v LOG_STDERR_FILE_PATH "%s/%s.stderr.log" "${LOG_DIR}" "${0##*/}"
-    printf "Log file initialize!\n\n"
+    printf "Log file initialized!\n\n"
 }
 
 function parse_arguments {
@@ -358,7 +366,6 @@ function parse_arguments {
         esac
     done
     shift $((OPTIND-1))
-    extra_args=${@}
 
     # check mandatory arguments 
     # Track if any requirement fails
@@ -381,7 +388,7 @@ function parse_arguments {
 
     # Exit if any variable was missing
     if (( missing_count > 0 )); then
-        printf "Initialization failed. Missing $missing_count required argument(s).\n\n"
+        printf "Initialization failed. Missing %s required argument(s).\n\n" "${missing_count}"
         print_help
         exit 1
     fi
@@ -393,8 +400,8 @@ function parse_arguments {
 function load_env {
     printf "Sourcing environment file...\n"
     # Source env file. Throw error if it does not exist.
-    if [ -f ${ENV_FILE} ]; then
-        source ${ENV_FILE}
+    if [ -f "${ENV_FILE}" ]; then
+        source "${ENV_FILE}"
     else
         printf "Env file %s not found. Exiting..." "${ENV_FILE}"
         exit 1
@@ -406,12 +413,13 @@ function load_env {
 function set_cookie_cmd {
 
     printf "Setting the cookie command...\n"
-    if [[ ! -z ${COOKIES_FROM_FILE} ]];then 
-        COOKIE_CMD="--cookies ${COOKIES_FROM_FILE}"
-    elif [[ ! -z ${COOKIES_FROM_BROWSER} ]];then 
-        COOKIE_CMD="--cookies-from-browser ${COOKIES_FROM_BROWSER}"
+    COOKIE_ARGS=()
+    if [[ -n "${COOKIES_FROM_FILE:-}" ]];then 
+        COOKIE_ARGS=(--cookies "${COOKIES_FROM_FILE}")
+    elif [[ -n "${COOKIES_FROM_BROWSER:-}" ]];then 
+        COOKIE_ARGS=(--cookies-from-browser "${COOKIES_FROM_BROWSER}")
     fi
-    printf "Cookie command set to %s\n\n" "${COOKIE_CMD}"
+    printf "Cookie command set to %s\n\n" "${COOKIE_ARGS[*]}"
 
 
 }
@@ -419,7 +427,7 @@ function set_cookie_cmd {
 # Start the main loop
 
 # Change cwd to the script's parent directory.
-cd "$(dirname $(dirname "$0"))"
+cd "$(dirname "$(dirname "$0")")" || exit 1
 
 # check required resources are set and/or exist
 parse_arguments "$@"
@@ -429,34 +437,36 @@ check_required_variables
 check_required_directories
 check_required_files
 initialize_log_file
-exit
 
 case "${ACTION}" in
     download-videos)
-        echo "Downloading 'videos'"
+        printf "Action '%s' selected.\n" "${ACTION}"
         update_ytdlp
         generate_download_archive
         set_batch_file
-        ]
-        download_channel_metadata
+        download_videos
         generate_nfo_files
         ;;
     download-video-metadata)
-        echo "Downloading 'video-metadata'"
+        printf "Action '%s' selected.\n" "${ACTION}"
         update_ytdlp
         generate_download_archive
-        if [ ! -z ${WANTED_HOME_DIR} ]; then 
+        if [ ! -z "${WANTED_HOME_DIR}" ]; then 
             generate_wanted_list
         fi
         set_batch_file
         download_video_metadata
+        generate_nfo_files
         ;;
     download-channel-metadata)
+        printf "Action '%s' selected.\n" "${ACTION}"
         update_ytdlp
         set_batch_file
         download_channel_metadata
+        generate_nfo_files
         ;;
     *)  
+        printf "Action not %s not recognized. Exiting...\n" "${ACTION}"
         ;;
 esac
 
