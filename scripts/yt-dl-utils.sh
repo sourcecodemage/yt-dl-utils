@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # printf "%s START %s script starting.\n" "$(date +"%Y%m%d_%H%M%S")" "${0}"
-# set -eo pipefail
+set -eo pipefail
 
 function cleanup {
     if [[ -n "${FIND_FILE:-}" && -f "${FIND_FILE}" ]]; then 
@@ -22,11 +22,13 @@ function check_required_variables {
     # List required environment variables
     required_vars=(
         DOWNLOAD_ARCHIVE_FILE
+        FIND_FILE
         HOME_DIR
         INVENTORY_FILE
+        PRIVATED_FILE
         TEMP_DIR
+        UNAVAILABLE_FILE
         YTDLP_FILE
-        FIND_FILE
     )
 
     missing=()
@@ -79,6 +81,8 @@ function check_required_files {
         "${DOWNLOAD_ARCHIVE_FILE}"
         "${FIND_FILE}"
         "${INVENTORY_FILE}"
+        "${PRIVATED_FILE}"
+        "${UNAVAILABLE_FILE}"
         "${YTDLP_FILE}"
     )
 
@@ -222,7 +226,6 @@ function download_videos {
         --match-filters "availability != private" \
         --match-filters "availability != subscriber_only" \
         --match-filters "availability != needs_auth" \
-        --match-filters "availability != subscriber_only" \
         --match-filters "original_url!*=/shorts/ & url!*=/shorts/"  \
         --no-playlist  \
         --no-progress \
@@ -332,8 +335,10 @@ function generate_download_archive {
     cp "${INVENTORY_FILE}" "${DOWNLOAD_ARCHIVE_FILE}"
     # add blacklist file to download archive to skip them
     cat "${BLACKLIST_FILE}" >> "${DOWNLOAD_ARCHIVE_FILE}"
-    # add private and nonexistent files to download archive to skip them, since you cannot access them!
-    #cat "${UNAVAILABLE_FILE}" >> "${DOWNLOAD_ARCHIVE_FILE}"
+    # add private videos to download archive to skip them, since you cannot access them!
+    cat "${PRIVATED_FILE}" >> "${DOWNLOAD_ARCHIVE_FILE}"
+    # add unavailable videos to download archive to skip them, since you cannot access them!
+    cat "${UNAVAILABLE_FILE}" >> "${DOWNLOAD_ARCHIVE_FILE}"
     # Sanity check to ensure that the download archive file was created successfully
     if [[ ! -f "${DOWNLOAD_ARCHIVE_FILE}" || ! -s "${DOWNLOAD_ARCHIVE_FILE}" ]]; then
         printf "ERROR: Download archive file %s was not created successfully. Exiting...\n" "${DOWNLOAD_ARCHIVE_FILE}"
