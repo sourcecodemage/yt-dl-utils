@@ -200,7 +200,7 @@ function download_videos {
 
     YOUTUBE_LIBRARY_COUNT_START=$(wc -l < "${INVENTORY_FILE}")
     printf "Before download: Your Youtube library has %s videos.\n" "${YOUTUBE_LIBRARY_COUNT_START}"
-
+    set +eo pipefail
     # Download episodes
     caffeinate "${YTDLP_FILE}" \
         --add-metadata \
@@ -253,6 +253,7 @@ function download_videos {
         --write-thumbnail \
         --convert-thumbnails jpg \
         > "${LOG_STDOUT_FILE_PATH}" 2> "${LOG_STDERR_FILE_PATH}"
+    set -eo pipefail    
     # update the inventory file after the download is complete
     generate_inventory_file
     # cound the number of videos in the library after the download is complete
@@ -331,14 +332,8 @@ function download_video_metadata {
 function generate_download_archive {
     # Create inventory list
     printf "Generating Download Archive for library %s\n" "${HOME_DIR}"
-    generate_inventory_file
-    cp "${INVENTORY_FILE}" "${DOWNLOAD_ARCHIVE_FILE}"
-    # add blacklist file to download archive to skip them
-    cat "${BLACKLIST_FILE}" >> "${DOWNLOAD_ARCHIVE_FILE}"
-    # add private videos to download archive to skip them, since you cannot access them!
-    cat "${PRIVATED_FILE}" >> "${DOWNLOAD_ARCHIVE_FILE}"
-    # add unavailable videos to download archive to skip them, since you cannot access them!
-    cat "${UNAVAILABLE_FILE}" >> "${DOWNLOAD_ARCHIVE_FILE}"
+    # join all files into the download archive file to skip them    
+    cat "${INVENTORY_FILE}" "${BLACKLIST_FILE}" "${PRIVATED_FILE}" "${UNAVAILABLE_FILE}" > "${DOWNLOAD_ARCHIVE_FILE}"
     # Sanity check to ensure that the download archive file was created successfully
     if [[ ! -f "${DOWNLOAD_ARCHIVE_FILE}" || ! -s "${DOWNLOAD_ARCHIVE_FILE}" ]]; then
         printf "ERROR: Download archive file %s was not created successfully. Exiting...\n" "${DOWNLOAD_ARCHIVE_FILE}"
@@ -473,6 +468,7 @@ case "${ACTION}" in
     download-videos)
         printf "Action '%s' selected.\n" "${ACTION}"
         update_ytdlp
+        generate_inventory_file
         generate_download_archive
         set_batch_file
         download_videos
@@ -481,6 +477,7 @@ case "${ACTION}" in
     download-video-metadata)
         printf "Action '%s' selected.\n" "${ACTION}"
         update_ytdlp
+        generate_inventory_file
         generate_download_archive
         if [ ! -z "${WANTED_HOME_DIR}" ]; then 
             generate_wanted_list

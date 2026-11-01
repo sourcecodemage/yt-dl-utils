@@ -2,10 +2,10 @@
 APP_NAME := yt-dlp-utils
 
 # Output directory
-BIN_DIR := bin
+BIN_DIR := ./bin
 
 # CMD dir 
-CMD_DIR := ./cmd/$(APP_NAME)
+#CMD_DIR := ./cmd/$(APP_NAME)
 
 # Go settings
 GO := go
@@ -19,7 +19,7 @@ all: build
 .PHONY: build
 build:
 	mkdir -p $(BIN_DIR)
-	$(GO) build $(GOFLAGS) -o $(BIN_DIR)/$(APP_NAME) $(CMD_DIR)
+	$(GO) build $(GOFLAGS) -o $(BIN_DIR)/$(APP_NAME) .
 
 # Run the application
 .PHONY: run
@@ -50,16 +50,16 @@ clean:
 .PHONY: build-linux
 build-linux:
 	mkdir -p $(BIN_DIR)
-	GOOS=linux GOARCH=amd64 $(GO) build -o $(BIN_DIR)/$(APP_NAME)-linux-amd64 $(CMD_DIR)
+	GOOS=linux GOARCH=amd64 $(GO) build -o $(BIN_DIR)/$(APP_NAME)-linux-amd64 .
 
 # Build for Windows AMD64
 .PHONY: build-windows
 build-windows:
 	mkdir -p $(BIN_DIR)
-	GOOS=windows GOARCH=amd64 $(GO) build -o $(BIN_DIR)/$(APP_NAME)-windows-amd64.exe $(CMD_DIR)
+	GOOS=windows GOARCH=amd64 $(GO) build -o $(BIN_DIR)/$(APP_NAME)-windows-amd64.exe .
 
 # Build for macOS ARM64 (Apple Silicon)
 .PHONY: build-darwin
 build-darwin:
 	mkdir -p $(BIN_DIR)
-	GOOS=darwin GOARCH=arm64 $(GO) build -o $(BIN_DIR)/$(APP_NAME)-darwin-arm64 $(CMD_DIR)
+	GOOS=darwin GOARCH=arm64 $(GO) build -o $(BIN_DIR)/$(APP_NAME)-darwin-arm64 .
