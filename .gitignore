@@ -1,0 +1,7 @@
+# ignore working files
+bin/*
+config/*
+downloads/*
+lists/*
+logs/*
+workdir/*
