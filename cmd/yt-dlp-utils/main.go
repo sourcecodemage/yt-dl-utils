@@ -140,13 +140,7 @@ func createEpisodeNfoFile(video_infojson *videoInfoJson, nfo_file string) error 
 	season_string := fmt.Sprintf("%d", int(year))                                                     // Use the year as the season string
 	episode_string := fmt.Sprintf("%02d%02d%02d%02d%02d", int(month), int(day), hour, minute, second) // Use the MMDDHHMMSS as the episode string
 	aired_string := uploadTime.Format("2006-01-02")                                                   // Format the aired date as YYYY-MM-DD
-	replacer := strings.NewReplacer(
-		"/", "⧸",
-		"?", "",
-		":", "-",
-		"*", "",
-	)
-	safe_video_title := replacer.Replace(video_infojson.Title)
+	safe_video_title := safeString(video_infojson.Title)
 
 	xmlData := episodeXML{
 		Id:      video_infojson.Id, // You can set this to a unique ID if needed
@@ -201,13 +195,7 @@ type tvshowXML struct {
 }
 
 func createTVShowNfoFile(channel_infojson *channelInfoJson, nfo_file string) error {
-	replacer := strings.NewReplacer(
-		"/", "⧸",
-		"?", "",
-		":", "-",
-		"*", "",
-	)
-	safe_channel_name := replacer.Replace(channel_infojson.Title)
+	safe_channel_name := safeString(channel_infojson.Title)
 
 	xmlData := tvshowXML{
 		Id:     channel_infojson.Id, // You can set this to a unique ID if needed
@@ -396,7 +384,6 @@ func copyFile(src_file_path, dst_file_path string) error {
 
 // renameFiles recursively searches src_dir and renames video files and info.json file it finds.
 // Moves files to dst_dir if dst_dir is different than src_dir
-// TODO change the algorithm to check if the channel name and season name are in the destination path . if channel and season are in path, don't add them to new name. fill them in only if they are no included in the original dst path.
 func renameFiles(src_dir, dst_dir string, force bool) error {
 	infojson_files, err := findFiles(src_dir, "info.json")
 	if err != nil {
@@ -472,14 +459,8 @@ func renameFiles(src_dir, dst_dir string, force bool) error {
 			episode_string := fmt.Sprintf("%02d%02d%02d%02d%02d", int(month), int(day), hour, minute, second) // Use the MMDDHHMMSS as the episode string
 			video_file_ext := filepath.Ext(video_file)
 
-			replacer := strings.NewReplacer(
-				"/", "⧸",
-				"?", "",
-				":", "-",
-				"*", "",
-			)
-			safe_channel_name := replacer.Replace(video_infojson.Channel)
-			safe_video_title := replacer.Replace(video_infojson.Title)
+			safe_channel_name := safeString(video_infojson.Channel)
+			safe_video_title := safeString(video_infojson.Title)
 			// Calculate new base name and path since that will be the same for all files. '/path/channel - sXeX - title [video id]'
 			// Path calculation is if there is a channel directory in the path, don't add one to the path.
 			// If there is a season under the channel, don't add the season.
@@ -693,7 +674,25 @@ func renameFiles(src_dir, dst_dir string, force bool) error {
 	return nil
 }
 
-// main function
+// safeString replaces characters in a string that are not allowed in file names with safe alternatives.
+func safeString(input string) string {
+	replacer := strings.NewReplacer(
+		"/", "⧸",
+		"?", "",
+		":", "-",
+		"*", "",
+		"ö", "oe",
+		"ä", "ae",
+		"ü", "ue",
+		"ß", "ss",
+		"İ", "I",
+		"ş", "s",
+	)
+	return replacer.Replace(input)
+
+}
+
+// main function orchestrates the command-line interface and dispatches commands to their respective handlers.
 func main() {
 	ctx := kong.Parse(&CLI)
 

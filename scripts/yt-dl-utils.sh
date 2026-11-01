@@ -129,6 +129,12 @@ function download_channel_metadata {
         --replace-in-metadata channel,title "\?" "" \
         --replace-in-metadata channel,title ":" "-" \
         --replace-in-metadata channel,title "\*" "" \
+        --replace-in-metadata "channel,title" "ö" "oe" \
+        --replace-in-metadata "channel,title" "ä" "ae" \
+        --replace-in-metadata "channel,title" "ü" "ue" \
+        --replace-in-metadata "channel,title" "ß" "ss" \
+        --replace-in-metadata "channel,title" "İ" "I" \
+        --replace-in-metadata "channel,title" "ş" "s" \
         --skip-download \
         --verbose \
         --output "%(channel)s [%(channel_id)s]/%(title)s [%(channel_id)s]" \
@@ -231,12 +237,12 @@ function download_videos {
         --replace-in-metadata channel,title "\?" "" \
         --replace-in-metadata channel,title ":" "-" \
         --replace-in-metadata channel,title "\*" "" \
-        --replace-in-metadata "channel" "ö" "oe" \
-        --replace-in-metadata "channel" "ä" "ae" \
-        --replace-in-metadata "channel" "ü" "ue" \
-        --replace-in-metadata "channel" "ß" "ss" \
-        --replace-in-metadata "channel" "İ" "I" \
-        --replace-in-metadata "channel" "ş" "s" \
+        --replace-in-metadata "channel,title" "ö" "oe" \
+        --replace-in-metadata "channel,title" "ä" "ae" \
+        --replace-in-metadata "channel,title" "ü" "ue" \
+        --replace-in-metadata "channel,title" "ß" "ss" \
+        --replace-in-metadata "channel,title" "İ" "I" \
+        --replace-in-metadata "channel,title" "ş" "s" \
         -t "mkv" \
         --verbose \
         --write-info-json \
@@ -302,6 +308,12 @@ function download_video_metadata {
         --replace-in-metadata channel,title "\?" "" \
         --replace-in-metadata channel,title ":" "-" \
         --replace-in-metadata channel,title "\*" "" \
+        --replace-in-metadata "channel,title" "ö" "oe" \
+        --replace-in-metadata "channel,title" "ä" "ae" \
+        --replace-in-metadata "channel,title" "ü" "ue" \
+        --replace-in-metadata "channel,title" "ß" "ss" \
+        --replace-in-metadata "channel,title" "İ" "I" \
+        --replace-in-metadata "channel,title" "ş" "s" \
         --skip-download \
         -t "mkv" \
         --verbose \
