@@ -472,7 +472,8 @@ case "${ACTION}" in
         generate_download_archive
         set_batch_file
         download_videos
-        # generate_nfo_files
+        download_channel_metadata
+        generate_nfo_files
         ;;
     download-video-metadata)
         printf "Action '%s' selected.\n" "${ACTION}"
