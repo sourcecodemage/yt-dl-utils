@@ -1,6 +1,6 @@
 # ignore working files
 bin/*
-config/*
+conf
 downloads/*
 lists/*
 logs/*
