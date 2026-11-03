@@ -3,7 +3,7 @@
 # printf "%s START %s script starting.\n" "$(date +"%Y%m%d_%H%M%S")" "${0}"
 set -eo pipefail
 
-function cleanup {
+function cleanup_temp_dir {
     if [[ -n "${FIND_FILE:-}" && -f "${FIND_FILE}" ]]; then 
         echo "$("${FIND_FILE}" "${TEMP_DIR}" -type d -empty -print | wc -l) empty directories found."
         # first delete .DS_Store files
@@ -12,10 +12,10 @@ function cleanup {
         "${FIND_FILE}" "${TEMP_DIR}" -type d -mindepth 1 -empty -delete
         echo "Empty directories deleted."
     fi
-    echo "$(date +"%Y%m%d_%H%M%S") END ${0} script completed."
+    # echo "$(date +"%Y%m%d_%H%M%S") END ${0} script completed."
 }
 
-trap cleanup EXIT
+# trap cleanup EXIT
 
 function check_required_variables {
     printf "Checking that all required environment variables exist.\n"
@@ -471,9 +471,25 @@ case "${ACTION}" in
         generate_inventory_file
         generate_download_archive
         set_batch_file
-        download_videos
-        download_channel_metadata
-        generate_nfo_files
+        if ! download_videos; then
+            printf "Error: Downloading videos failed. Exiting...\n"
+            exit 1
+        fi
+        cleanup_temp_dir
+        if ! download_video_metadata; then
+            printf "Error: Downloading video metadata failed. Exiting...\n"
+            exit 1
+        fi
+        cleanup_temp_dir
+        if ! download_channel_metadata; then
+            printf "Error: Downloading channel metadata failed. Exiting...\n"
+            exit 1
+        fi
+        cleanup_temp_dir
+        if ! generate_nfo_files; then
+            printf "Error: Downloading channel nfo files. Exiting...\n"
+            exit 1
+        fi
         ;;
     download-video-metadata)
         printf "Action '%s' selected.\n" "${ACTION}"
@@ -485,14 +501,28 @@ case "${ACTION}" in
         fi
         set_batch_file
         download_video_metadata
-        # generate_nfo_files
+        if ! generate_nfo_files; then
+            printf "Error: Downloading channel nfo files. Exiting...\n"
+            exit 1
+        fi
         ;;
     download-channel-metadata)
         printf "Action '%s' selected.\n" "${ACTION}"
         update_ytdlp
         set_batch_file
-        download_channel_metadata
-        # generate_nfo_files
+        if ! download_channel_metadata; then
+            printf "Error: Downloading channel metadate failed. Exiting...\n"
+            exit 1
+        fi
+        cleanup_temp_dir
+        if ! generate_nfo_files; then
+            printf "Error: Downloading channel nfo files. Exiting...\n"
+            exit 1
+        fi
+        ;;
+    generate-channel-urls)
+        printf "Action '%s' selected.\n" "${ACTION}"
+        generate_channel_urls_file
         ;;
     *)  
         printf "Action not %s not recognized. Exiting...\n" "${ACTION}"
