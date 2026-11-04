@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # printf "%s START %s script starting.\n" "$(date +"%Y%m%d_%H%M%S")" "${0}"
-set -eo pipefail
+set -eEo pipefail -o functrace
 
 function cleanup_temp_dir {
     if [[ -n "${FIND_FILE:-}" && -f "${FIND_FILE}" ]]; then 
@@ -12,15 +12,26 @@ function cleanup_temp_dir {
         "${FIND_FILE}" "${TEMP_DIR}" -type d -mindepth 1 -empty -delete
         echo "Empty directories deleted."
     fi
-    # echo "$(date +"%Y%m%d_%H%M%S") END ${0} script completed."
 }
 
-# trap cleanup EXIT
+error_handler() {
+    local exit_code=$1
+    local line_number=$2
+    local command="$BASH_COMMAND"
+    
+    echo "ERROR: Command '$command' failed on line $line_number with exit code $exit_code." >&2
+    exit "$exit_code"
+}
+
+# 4. Bind the handler to the ERR signal
+trap 'error_handler $? $LINENO' ERR
 
 function check_required_variables {
     printf "Checking that all required environment variables exist.\n"
     # List required environment variables
     required_vars=(
+        CHANNEL_LIST_URLS
+        CHANNEL_UNAVAILABLE_FILE
         DOWNLOAD_ARCHIVE_FILE
         FIND_FILE
         HOME_DIR
@@ -78,6 +89,7 @@ function check_required_files {
     printf "Checking that all required files exist.\n"
     # check for required files 
     required_files=(
+        "${CHANNEL_UNAVAILABLE_FILE}"
         "${DOWNLOAD_ARCHIVE_FILE}"
         "${FIND_FILE}"
         "${INVENTORY_FILE}"
@@ -111,9 +123,120 @@ function update_ytdlp {
     printf "Updated %s from version %s to %s which is the latest nightly branch commit!\n\n" "${YTDLP_FILE}" "${PRE_VERSION}" "${POST_VERSION}"
 }
 
-function generate_channel_urls_file {
+function generate_channel_urls_file_old {
     printf "Generating fresh channel urls file at %s\n." "${CHANNEL_LIST_URLS}"
-    "${FIND_FILE}" "${HOME_DIR}" -type f -name "*.info.json" -exec jq '.channel_url' {} \; | sed 's/"//g' | grep "channel/UC" | sort | uniq > "${CHANNEL_LIST_URLS}"
+    # Create a fresh channel urls file
+    :> "${CHANNEL_LIST_URLS}"
+
+    # load the unavailable channel ids into a variable for quick lookup
+    local unavailable_ids
+    unavailable_ids=$'\n'$(<"${CHANNEL_UNAVAILABLE_FILE}")$'\n'
+
+    # Start the loop to find all channel directories in the home directory
+    while IFS= read -r channel_dir; do
+        printf "Processing channel directory: %s\n" "${channel_dir}"
+        channel_dir_name="${channel_dir##*/}"
+        if [[ "${channel_dir_name}" =~ \[([^]]+)\]$ ]]; then
+            channel_id="${BASH_REMATCH[1]}"
+        else
+            printf "WARNING: Could not extract channel ID from %s; skipping.\n" "${channel_dir}" >&2
+            continue
+        fi
+        case "${unavailable_ids}" in
+            *$'\n'"${channel_id}"$'\n'*)
+                printf "Skipping unavailable channel %s.\n" "${channel_id}"
+                continue
+                ;;
+        esac
+
+        CHANNEL_URL_FOUND=false
+        while IFS= read -r season_dir; do
+            while IFS= read -r info_json_file; do
+                if [[ -f "${info_json_file}" ]]; then
+                    if jq -er '.channel_url' "${info_json_file}" &>/dev/null; then
+                        if [[ -n "${channel_url}" && "${channel_url}" == *"channel/UC"* ]]; then
+                            printf "Validated UC channel_url %s in %s\n" "${channel_url}" "${info_json_file}"
+                            echo "${channel_url}" >> "${CHANNEL_LIST_URLS}"
+                            printf "Added channel_url %s to %s\n" "${channel_url}" "${CHANNEL_LIST_URLS}"
+                            CHANNEL_URL_FOUND=true
+                            # exit file loop
+                            break
+                            # printf "Channel URL found for %s in season dir %s and added to %s\n" "${channel_dir}" "${season_dir}" "${CHANNEL_LIST_URLS}"
+                        fi
+                    fi
+                fi                                          
+            done < <("${FIND_FILE}" "${season_dir}" -type f -name "*.info.json")
+            # exit season dir loop if channel url found
+            if [[ "${CHANNEL_URL_FOUND}" == true ]]; then
+                break
+            fi  
+        done < <("${FIND_FILE}" "${channel_dir}" -type d -mindepth 1 -maxdepth 1)
+        # if [[ "${CHANNEL_URL_FOUND}" == false ]]; then
+        #     printf "WARNING: No channel URL found for %s. Please check the info.json files in this directory.\n" "${channel_dir}"
+        # fi
+        # printf "Finished processing channel directory: %s\n\n" "${channel_dir}"
+    done < <("${FIND_FILE}" "${HOME_DIR}" -type d \( -name '.*' -prune -o -print \) -mindepth 1 -maxdepth 1 | sort -u)
+    printf "Generated channel urls file at %s with %s entries\n\n!" "${CHANNEL_LIST_URLS}" "$(cat "${CHANNEL_LIST_URLS}" | wc -l)"
+}
+
+
+function generate_channel_urls_file {
+    # printf "Generating fresh channel urls file at %s\n." "${CHANNEL_LIST_URLS}"
+    # load the unavailable channel ids into a variable for quick lookup
+    local unavailable_ids
+    unavailable_ids=$'\n'$(<"${CHANNEL_UNAVAILABLE_FILE}")$'\n'
+    local channel_url_array=()
+
+    while IFS= read -r info_json_file; do
+        if [[ -f "${info_json_file}" ]]; then
+            if jq -er '.channel_url' "${info_json_file}" &>/dev/null; then
+                channel_url=$(jq -r '.channel_url' "${info_json_file}")
+                if [[ -n "${channel_url}" && "${channel_url}" == *"channel/UC"* ]]; then
+                    # printf "Validated UC channel_url %s in %s\n" "${channel_url}" "${info_json_file}"
+                    # echo "${channel_url}" >> "${CHANNEL_LIST_URLS}"
+                    # check if channel_url is already in the array
+                    local exists=false
+                    for element in "${channel_url_array[@]}"; do
+                        if [[ "$element" == "$channel_url" ]]; then
+                            exists=true
+                            break
+                        fi
+                    done
+                    if [[ "${exists}" == false ]]; then
+                        channel_url_array+=("${channel_url}")
+                        # printf "Added channel_url %s to array\n" "${channel_url}"
+                    fi
+                    
+                    # CHANNEL_URL_FOUND=true
+                    # exit file loop
+                    continue
+                    # printf "Channel URL found for %s in season dir %s and added to %s\n" "${channel_dir}" "${season_dir}" "${CHANNEL_LIST_URLS}"
+                fi
+            fi
+        fi  
+    done < <("${FIND_FILE}" "${HOME_DIR}" -type f -mindepth 2 -maxdepth 2 -name "*.info.json")
+    printf '%s\n' "${channel_url_array[@]}" | sort -u > "${CHANNEL_LIST_URLS}"
+
+
+
+    # Start the loop to find all channel directories in the home directory
+    
+        # printf "Processing channel directory: %s\n" "${channel_dir}"
+        # channel_dir_name="${channel_dir##*/}"
+        # if [[ "${channel_dir_name}" =~ \[([^]]+)\]$ ]]; then
+        #     channel_id="${BASH_REMATCH[1]}"
+        # else
+        #     printf "WARNING: Could not extract channel ID from %s; skipping.\n" "${channel_dir}" >&2
+        #     continue
+        # fi
+        # case "${unavailable_ids}" in
+        #     *$'\n'"${channel_id}"$'\n'*)
+        #         printf "Skipping unavailable channel %s.\n" "${channel_id}"
+        #         continue
+        #         ;;
+        # esac
+
+        # CHANNEL_URL_FOUND=false
     printf "Generated channel urls file at %s with %s entries\n\n!" "${CHANNEL_LIST_URLS}" "$(cat "${CHANNEL_LIST_URLS}" | wc -l)"
 }
 
@@ -353,6 +476,7 @@ function print_help {
     printf '                 download-videos\n'
     printf '                 download-video-metadata\n'
     printf '                 download-channel-metadata\n'
+    printf '                 generate-channel-urls\n'
     printf '  -e ENV_FILE  Path to the environment configuration file\n\n'
     printf 'Optional options:\n'
     printf '  -h           Show this help message\n'
@@ -526,6 +650,8 @@ case "${ACTION}" in
         ;;
     *)  
         printf "Action not %s not recognized. Exiting...\n" "${ACTION}"
+        print_help
+        exit 1
         ;;
 esac
 
