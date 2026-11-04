@@ -3,6 +3,21 @@
 # printf "%s START %s script starting.\n" "$(date +"%Y%m%d_%H%M%S")" "${0}"
 set -eEo pipefail -o functrace
 
+declare -a REPLACE_IN_METADATA_ARGS=(
+        '--replace-in-metadata channel,title "/" "⧸"'
+        '--replace-in-metadata channel,title "\?" ""'
+        '--replace-in-metadata channel,title ":" "-"'
+        '--replace-in-metadata channel,title "\*" ""'
+        '--replace-in-metadata "channel,title" "ä" "ae"'
+        '--replace-in-metadata "channel,title" "ß" "ss"'
+        '--replace-in-metadata "channel,title" "ë" "e"'
+        '--replace-in-metadata "channel,title" "ö" "oe"'
+        '--replace-in-metadata "channel,title" "İ" "I"'
+        '--replace-in-metadata "channel,title" "ş" "s"'
+        '--replace-in-metadata "channel,title" "ü" "ue"'
+)
+
+
 function cleanup_temp_dir {
     if [[ -n "${FIND_FILE:-}" && -f "${FIND_FILE}" ]]; then 
         echo "$("${FIND_FILE}" "${TEMP_DIR}" -type d -empty -print | wc -l) empty directories found."
@@ -132,8 +147,17 @@ function generate_channel_urls_file {
 
     while IFS= read -r info_json_file; do
         if [[ -f "${info_json_file}" ]]; then
-            if jq -er '.channel_url' "${info_json_file}" &>/dev/null; then
+            if jq -er '.channel_url' "${info_json_file}" &>/dev/null && jq -er '.channel_id' "${info_json_file}" &>/dev/null; then
                 channel_url=$(jq -r '.channel_url' "${info_json_file}")
+                channel_id=$(jq -r '.channel_id' "${info_json_file}")
+                # check if channel_id is in the unavailable_ids list. skip if it is
+                case "${unavailable_ids}" in
+                    *$'\n'"${channel_id}"$'\n'*)
+                        # printf "Skipping unavailable channel %s.\n" "${channel_id}"
+                        continue
+                        ;;
+                esac
+
                 if [[ -n "${channel_url}" && "${channel_url}" == *"channel/UC"* ]]; then
                     # printf "Validated UC channel_url %s in %s\n" "${channel_url}" "${info_json_file}"
                     # echo "${channel_url}" >> "${CHANNEL_LIST_URLS}"
@@ -195,16 +219,7 @@ function download_channel_metadata {
         --write-info-json \
         --paths home:"${HOME_DIR}" \
         --paths temp:"${TEMP_DIR}" \
-        --replace-in-metadata channel,title "/" "⧸" \
-        --replace-in-metadata channel,title "\?" "" \
-        --replace-in-metadata channel,title ":" "-" \
-        --replace-in-metadata channel,title "\*" "" \
-        --replace-in-metadata "channel,title" "ö" "oe" \
-        --replace-in-metadata "channel,title" "ä" "ae" \
-        --replace-in-metadata "channel,title" "ü" "ue" \
-        --replace-in-metadata "channel,title" "ß" "ss" \
-        --replace-in-metadata "channel,title" "İ" "I" \
-        --replace-in-metadata "channel,title" "ş" "s" \
+        "${REPLACE_IN_METADATA_ARGS[@]}" \
         --skip-download \
         --verbose \
         --output "%(channel)s [%(channel_id)s]/%(title)s [%(channel_id)s]" \
@@ -302,16 +317,7 @@ function download_videos {
         --paths "home:${HOME_DIR}" \
         --paths "temp:${TEMP_DIR}"  \
         --remux-video mkv \
-        --replace-in-metadata channel,title "/" "⧸" \
-        --replace-in-metadata channel,title "\?" "" \
-        --replace-in-metadata channel,title ":" "-" \
-        --replace-in-metadata channel,title "\*" "" \
-        --replace-in-metadata "channel,title" "ö" "oe" \
-        --replace-in-metadata "channel,title" "ä" "ae" \
-        --replace-in-metadata "channel,title" "ü" "ue" \
-        --replace-in-metadata "channel,title" "ß" "ss" \
-        --replace-in-metadata "channel,title" "İ" "I" \
-        --replace-in-metadata "channel,title" "ş" "s" \
+        "${REPLACE_IN_METADATA_ARGS[@]}" \
         -t "mkv" \
         --verbose \
         --write-info-json \

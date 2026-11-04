@@ -681,12 +681,13 @@ func safeString(input string) string {
 		"?", "",
 		":", "-",
 		"*", "",
-		"ö", "oe",
 		"ä", "ae",
-		"ü", "ue",
+		"ë", "e",
 		"ß", "ss",
 		"İ", "I",
+		"ö", "oe",
 		"ş", "s",
+		"ü", "ue",
 	)
 	return replacer.Replace(input)
 
