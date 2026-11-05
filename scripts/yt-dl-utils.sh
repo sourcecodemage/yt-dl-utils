@@ -136,8 +136,7 @@ function update_ytdlp {
     printf "Updated %s from version %s to %s which is the latest nightly branch commit!\n\n" "${YTDLP_FILE}" "${PRE_VERSION}" "${POST_VERSION}"
 }
 
-
-
+# sets the batch file to used for downloading videos and metadata.
 function set_batch_file  {
     printf "Setting batch file...\n"
     # set the batch file to be used in this run
@@ -150,7 +149,7 @@ function set_batch_file  {
 }
 
 
-# print help
+# prints help
 function print_help {
     printf 'Usage: %s -a ACTION -e ENV_FILE\n\n' "$(basename "$0")"
     printf 'Required options:\n'
@@ -165,13 +164,17 @@ function print_help {
 }
 
 function initialize_log_file {
-    printf "Initializing log file...\n"
+    printf "Initializing log files...\n"
     # LOG_DATE=$(date +"%Y%m%d-%H%M%S")
     # printf -v LOG_STDOUT_FILE_PATH "%s/%s_%s.stdout.log" "${LOG_DIR}" "${0##*/}" "${LOG_DATE}"
     # printf -v LOG_STDERR_FILE_PATH "%s/%s_%s.stderr.log" "${LOG_DIR}" "${0##*/}" "${LOG_DATE}"
-    printf -v LOG_STDOUT_FILE_PATH "%s/%s.stdout.log" "${LOG_DIR}" "${0##*/}"
-    printf -v LOG_STDERR_FILE_PATH "%s/%s.stderr.log" "${LOG_DIR}" "${0##*/}"
-    printf "Log file initialized!\n\n"
+    # Set log file for video download
+    printf -v DOWNLOAD_VIDEOS_LOG_FILE_PATH "%s/%s.download_videos.log" "${LOG_DIR}" "${0##*/}"
+    # Set log file for video metadata download
+    printf -v DOWNLOAD_VIDEO_METADATA_LOG_FILE_PATH "%s/%s.download_video_metadata.log" "${LOG_DIR}" "${0##*/}"
+    # Set log file for channel metadata download
+    printf -v DOWNLOAD_CHANNEL_METADATA_LOG_FILE_PATH "%s/%s.download_channel_metadata.log" "${LOG_DIR}" "${0##*/}"
+    printf "Log files initialized!\n\n"
 }
 
 function parse_arguments {
@@ -409,7 +412,7 @@ function download_videos {
         --embed-thumbnail \
         --write-thumbnail \
         --convert-thumbnails jpg \
-        > "${LOG_STDOUT_FILE_PATH}" 2> "${LOG_STDERR_FILE_PATH}"
+        &> "${DOWNLOAD_VIDEOS_LOG_FILE_PATH}"
     set -eo pipefail    
     # update the inventory file after the download is complete
     generate_inventory_file
@@ -475,7 +478,7 @@ function download_video_metadata {
         --write-info-json \
         --write-thumbnail \
         --convert-thumbnails jpg \
-        > "${LOG_STDOUT_FILE_PATH}" 2> "${LOG_STDERR_FILE_PATH}"
+        &> "${DOWNLOAD_VIDEO_METADATA_LOG_FILE_PATH}"
     printf "Video file metadata downloaded!\n\n"
 }
 
@@ -496,11 +499,10 @@ function download_channel_metadata {
         --verbose \
         --output "%(channel)s [%(channel_id)s]/%(title)s [%(channel_id)s]" \
         --playlist-items '0,0' \
-        >> "${LOG_STDOUT_FILE_PATH}" 2>> "${LOG_STDERR_FILE_PATH}"
+        &> "${DOWNLOAD_CHANNEL_METADATA_LOG_FILE_PATH}"
     printf "Channel metadata for %s downloaded!\n\n" "${HOME_DIR}"
     
 }
-
 
 # generates video and channel NFO files from info.json file data
 function generate_nfo_files {
@@ -533,8 +535,6 @@ function update_unavailable_video_file {
         printf "No unavailable video files found in the error log.\n\n"
     fi        
 }
-
-
 
 # Start the main loop
 
