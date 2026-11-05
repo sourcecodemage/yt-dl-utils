@@ -51,9 +51,9 @@ function check_required_variables {
         FIND_FILE
         HOME_DIR
         INVENTORY_FILE
-        PRIVATED_FILE
+        VIDEO_BLACKLIST_FILE
         TEMP_DIR
-        UNAVAILABLE_FILE
+        VIDEO_UNAVAILABLE_FILE
         YTDLP_FILE
     )
 
@@ -108,8 +108,6 @@ function check_required_files {
         "${DOWNLOAD_ARCHIVE_FILE}"
         "${FIND_FILE}"
         "${INVENTORY_FILE}"
-        "${PRIVATED_FILE}"
-        "${UNAVAILABLE_FILE}"
         "${YTDLP_FILE}"
     )
 
@@ -138,129 +136,7 @@ function update_ytdlp {
     printf "Updated %s from version %s to %s which is the latest nightly branch commit!\n\n" "${YTDLP_FILE}" "${PRE_VERSION}" "${POST_VERSION}"
 }
 
-function generate_channel_urls_file {
-    # printf "Generating fresh channel urls file at %s\n." "${CHANNEL_LIST_URLS}"
-    # load the unavailable channel ids into a variable for quick lookup
-    local unavailable_ids
-    unavailable_ids=$'\n'$(<"${CHANNEL_UNAVAILABLE_FILE}")$'\n'
-    local channel_url_array=()
 
-    while IFS= read -r info_json_file; do
-        if [[ -f "${info_json_file}" ]]; then
-            if jq -er '.channel_url' "${info_json_file}" &>/dev/null && jq -er '.channel_id' "${info_json_file}" &>/dev/null; then
-                channel_url=$(jq -r '.channel_url' "${info_json_file}")
-                channel_id=$(jq -r '.channel_id' "${info_json_file}")
-                # check if channel_id is in the unavailable_ids list. skip if it is
-                case "${unavailable_ids}" in
-                    *$'\n'"${channel_id}"$'\n'*)
-                        # printf "Skipping unavailable channel %s.\n" "${channel_id}"
-                        continue
-                        ;;
-                esac
-
-                if [[ -n "${channel_url}" && "${channel_url}" == *"channel/UC"* ]]; then
-                    # printf "Validated UC channel_url %s in %s\n" "${channel_url}" "${info_json_file}"
-                    # echo "${channel_url}" >> "${CHANNEL_LIST_URLS}"
-                    # check if channel_url is already in the array
-                    local exists=false
-                    for element in "${channel_url_array[@]}"; do
-                        if [[ "$element" == "$channel_url" ]]; then
-                            exists=true
-                            break
-                        fi
-                    done
-                    if [[ "${exists}" == false ]]; then
-                        channel_url_array+=("${channel_url}")
-                        # printf "Added channel_url %s to array\n" "${channel_url}"
-                    fi
-                    
-                    # CHANNEL_URL_FOUND=true
-                    # exit file loop
-                    continue
-                    # printf "Channel URL found for %s in season dir %s and added to %s\n" "${channel_dir}" "${season_dir}" "${CHANNEL_LIST_URLS}"
-                fi
-            fi
-        fi  
-    done < <("${FIND_FILE}" "${HOME_DIR}" -type f -mindepth 2 -maxdepth 2 -name "*.info.json")
-    printf '%s\n' "${channel_url_array[@]}" | sort -u > "${CHANNEL_LIST_URLS}"
-
-
-
-    # Start the loop to find all channel directories in the home directory
-    
-        # printf "Processing channel directory: %s\n" "${channel_dir}"
-        # channel_dir_name="${channel_dir##*/}"
-        # if [[ "${channel_dir_name}" =~ \[([^]]+)\]$ ]]; then
-        #     channel_id="${BASH_REMATCH[1]}"
-        # else
-        #     printf "WARNING: Could not extract channel ID from %s; skipping.\n" "${channel_dir}" >&2
-        #     continue
-        # fi
-        # case "${unavailable_ids}" in
-        #     *$'\n'"${channel_id}"$'\n'*)
-        #         printf "Skipping unavailable channel %s.\n" "${channel_id}"
-        #         continue
-        #         ;;
-        # esac
-
-        # CHANNEL_URL_FOUND=false
-    printf "Generated channel urls file at %s with %s entries\n\n!" "${CHANNEL_LIST_URLS}" "$(cat "${CHANNEL_LIST_URLS}" | wc -l)"
-}
-
-# download channel metadata including thumbnails
-function download_channel_metadata {
-    printf "Downloading channel metadata for %s...\n" "${HOME_DIR}"
-    caffeinate "${YTDLP_FILE}" \
-        --batch-file "${CHANNEL_LIST_URLS}" \
-        --compat-options allow-unsafe-exec-expansion \
-        "${COOKIE_ARGS[@]}" \
-        --write-thumbnail \
-        --convert-thumbnails jpg \
-        --write-info-json \
-        --paths home:"${HOME_DIR}" \
-        --paths temp:"${TEMP_DIR}" \
-        "${REPLACE_IN_METADATA_ARGS[@]}" \
-        --skip-download \
-        --verbose \
-        --output "%(channel)s [%(channel_id)s]/%(title)s [%(channel_id)s]" \
-        --playlist-items '0,0' \
-        >> "${LOG_STDOUT_FILE_PATH}" 2>> "${LOG_STDERR_FILE_PATH}"
-    printf "Channel metadata for %s downloaded!\n\n" "${HOME_DIR}"
-    
-}
-
-# generates video and channel NFO files from info.json file data
-function generate_nfo_files {
-    printf "Generating NFO files for %s...\n" "${HOME_DIR}"
-    ./bin/yt-dlp-utils nfo --root-dir "${HOME_DIR}" 
-    printf "NFO files generated!\n\n"
-}
-
-function generate_wanted_list {
-    printf "Generating Wanted list.\n"
-    if [[ -n "${WANTED_HOME_DIR:-}" ]]; then
-        # create wanted list
-        printf "Generating Wanted list for wanted library %s\n" "${WANTED_HOME_DIR}"
-        "${FIND_FILE}" "${WANTED_HOME_DIR}" -type f \( -name "*.mp4" -o -name "*.mkv" -o -name "*.webm" \) | sed -r 's/^.*\[(.*)\]\.(mp4|mkv|webm)$/\1/' | while read -r i;do echo "youtube ${i}";done > "${WANTED_LIST_FILE}"
-        # Create download batch list that equals wanted list - inventory list - blacklist
-        printf "Generating wanted batch list file  %s\n" "${WANTED_BATCH_LIST_FILE}"
-        grep -v -f "${BLACKLIST_FILE}" "${WANTED_LIST_FILE}" > "${WANTED_BATCH_LIST_FILE}"
-        # validate that the wanted batch list file was created 
-        if [[ ! -f "${WANTED_BATCH_LIST_FILE}" || ! -s "${WANTED_BATCH_LIST_FILE}" ]]; then
-            printf "ERROR: Wanted batch list file %s was not created successfully. Exiting...\n" "${WANTED_BATCH_LIST_FILE}"
-            exit 1
-        fi
-
-        # grep -v -f ${INVENTORY_FILE} ${WANTED_LIST_FILE}  | grep -v -f ${BLACKLIST_FILE} > ${WANTED_BATCH_LIST_FILE}
-
-        # Convert batch list file to youtbe batch url list format for yt-dlp to consume
-        printf "Generating wanted batch list urls file  %s\n" "${WANTED_BATCH_LIST_URLS}"
-        sed -r 's/^youtube (.*)$/https:\/\/www.youtube.com\/watch?v=\1/' "${WANTED_BATCH_LIST_FILE}" > "${WANTED_BATCH_LIST_URLS}"
-    fi 
-
-    printf "Wanted list generated!\n\n"
-
-}
 
 function set_batch_file  {
     printf "Setting batch file...\n"
@@ -273,149 +149,6 @@ function set_batch_file  {
     printf "Batch file set to %s!\n\n" "${BATCH_FILE}"
 }
 
-# downloads youtube videos and metadata
-function download_videos {
-    printf "Downloading videos...\n"
-    printf "BATCH_FILE set to %s\n" "${BATCH_FILE}"
-    printf "DOWNLOAD_ARCHIVE_FILE set to %s\n" "${DOWNLOAD_ARCHIVE_FILE}"
-
-    YOUTUBE_LIBRARY_COUNT_START=$(wc -l < "${INVENTORY_FILE}")
-    printf "Before download: Your Youtube library has %s videos.\n" "${YOUTUBE_LIBRARY_COUNT_START}"
-    set +eo pipefail
-    # Download episodes
-    caffeinate "${YTDLP_FILE}" \
-        --add-metadata \
-        --batch-file "${BATCH_FILE}" \
-        "${COOKIE_ARGS[@]}" \
-        --download-archive "${DOWNLOAD_ARCHIVE_FILE}"  \
-        --write-subs \
-        --sub-langs en \
-        --embed-subs \
-        --embed-chapters \
-        --compat-options allow-unsafe-exec-expansion \
-        --ffmpeg-location "${FFMPEG_LOCATION}"  \
-        --exec "echo '%(channel_url)s' | grep -v -f ${CHANNEL_LIST_URLS} >> ${CHANNEL_LIST_URLS}" \
-        --exec "${TOUCH_FILE} -t '%(upload_date)s0000' '%(filepath)s'" \
-        --force-overwrites  \
-        --ignore-errors  \
-        --js-runtimes "deno:/opt/homebrew/bin/deno" \
-        --js-runtimes "node:/opt/homebrew/bin/node" \
-        --js-runtimes "quickjs:/opt/homebrew/bin/qjs" \
-        --mark-watched  \
-        --match-filters "is_live != true" \
-        --match-filters "was_live != true" \
-        --match-filters "availability != private" \
-        --match-filters "availability != subscriber_only" \
-        --match-filters "availability != needs_auth" \
-        --match-filters "original_url!*=/shorts/ & url!*=/shorts/"  \
-        --no-playlist  \
-        --no-progress \
-        --no-quiet  \
-        --no-warnings \
-        --no-write-playlist-metafiles \
-        --output "%(channel)s [%(channel_id)s]/Season %(upload_date>%Y)s/%(channel)s - S%(upload_date>%Y)sE%(upload_date>%m%d)s%(timestamp>%H%M%S)s - %(title)s [%(id)s].%(ext)s" \
-        --paths "home:${HOME_DIR}" \
-        --paths "temp:${TEMP_DIR}"  \
-        --remux-video mkv \
-        "${REPLACE_IN_METADATA_ARGS[@]}" \
-        -t "mkv" \
-        --verbose \
-        --write-info-json \
-        --embed-thumbnail \
-        --write-thumbnail \
-        --convert-thumbnails jpg \
-        > "${LOG_STDOUT_FILE_PATH}" 2> "${LOG_STDERR_FILE_PATH}"
-    set -eo pipefail    
-    # update the inventory file after the download is complete
-    generate_inventory_file
-    # cound the number of videos in the library after the download is complete
-    YOUTUBE_LIBRARY_COUNT_END=$(wc -l < "${DOWNLOAD_ARCHIVE_FILE}")
-    printf "Post download: Your Youtube library has %s videos. %s were added in this run.\n\n" " ${YOUTUBE_LIBRARY_COUNT_END}" "$(( YOUTUBE_LIBRARY_COUNT_END - YOUTUBE_LIBRARY_COUNT_START ))"
-}
-
-function generate_inventory_file {
-    printf "Generating inventory file for library %s\n" "${HOME_DIR}"
-    "${FIND_FILE}" "${HOME_DIR}" -type f \( -name "*.mp4" -o -name "*.mkv" -o -name "*.webm" \) | sed -r 's/^.*\[(.*)\]\.(mp4|mkv|webm)$/\1/' | while read -r i;do echo "youtube ${i}";done > "${INVENTORY_FILE}"
-    printf "Inventory file for library %s created at %s\n\n" "${HOME_DIR}" "${INVENTORY_FILE}"
-}   
-
-# Downloads video metadata only for all existing videos
-function download_video_metadata {
-    printf "Downloading video file metadata\n"
-    printf "BATCH_FILE set to %s\n" "${BATCH_FILE}"
-    printf "DOWNLOAD_ARCHIVE_FILE set to %s\n" "${DOWNLOAD_ARCHIVE_FILE}"
-
-    caffeinate "${YTDLP_FILE}" \
-        --add-metadata \
-        --batch-file "${BATCH_FILE}" \
-        "${COOKIE_ARGS[@]}" \
-        --write-subs \
-        --sub-langs en \
-        --embed-subs \
-        --embed-chapters \
-        --compat-options allow-unsafe-exec-expansion \
-        --ffmpeg-location "${FFMPEG_LOCATION}"  \
-        --exec "echo '%(channel_url)s' | grep -v -f ${CHANNEL_LIST_URLS} >> ${CHANNEL_LIST_URLS}" \
-        --exec "${TOUCH_FILE} -t '%(upload_date)s0000' '%(filepath)s'" \
-        --force-overwrites  \
-        --ignore-errors  \
-        --js-runtimes "deno:/opt/homebrew/bin/deno" \
-        --js-runtimes "node:/opt/homebrew/bin/node" \
-        --js-runtimes "quickjs:/opt/homebrew/bin/qjs" \
-        --remote-components ejs:npm \
-        --mark-watched  \
-        --match-filters "is_live != true" \
-        --match-filters "was_live != true" \
-        --match-filters "availability != private" \
-        --match-filters "availability != subscriber_only" \
-        --match-filters "availability != needs_auth" \
-        --match-filters "availability != subscriber_only" \
-        --match-filters "original_url!*=/shorts/ & url!*=/shorts/"  \
-        --no-playlist  \
-        --no-progress \
-        --no-quiet  \
-        --no-warnings \
-        --no-write-playlist-metafiles \
-        --output "%(channel)s [%(channel_id)s]/Season %(upload_date>%Y)s/%(channel)s - S%(upload_date>%Y)sE%(upload_date>%m%d)s%(timestamp>%H%M%S)s - %(title)s [%(id)s].%(ext)s" \
-        --paths "home:${HOME_DIR}" \
-        --paths "temp:${TEMP_DIR}"  \
-        --remux-video mkv \
-        --replace-in-metadata channel,title "/" "⧸" \
-        --replace-in-metadata channel,title "\?" "" \
-        --replace-in-metadata channel,title ":" "-" \
-        --replace-in-metadata channel,title "\*" "" \
-        --replace-in-metadata "channel,title" "ö" "oe" \
-        --replace-in-metadata "channel,title" "ä" "ae" \
-        --replace-in-metadata "channel,title" "ü" "ue" \
-        --replace-in-metadata "channel,title" "ß" "ss" \
-        --replace-in-metadata "channel,title" "İ" "I" \
-        --replace-in-metadata "channel,title" "ş" "s" \
-        --skip-download \
-        -t "mkv" \
-        --verbose \
-        --write-info-json \
-        --write-thumbnail \
-        --convert-thumbnails jpg \
-        > "${LOG_STDOUT_FILE_PATH}" 2> "${LOG_STDERR_FILE_PATH}"
-    printf "Video file metadata downloaded!\n\n"
-}
-
-# generates download archive file from current video inventory
-function generate_download_archive {
-    # Create inventory list
-    printf "Generating Download Archive for library %s\n" "${HOME_DIR}"
-    # join all files into the download archive file to skip them    
-    cat "${INVENTORY_FILE}" "${BLACKLIST_FILE}" "${PRIVATED_FILE}" "${UNAVAILABLE_FILE}" > "${DOWNLOAD_ARCHIVE_FILE}"
-    # Sanity check to ensure that the download archive file was created successfully
-    if [[ ! -f "${DOWNLOAD_ARCHIVE_FILE}" || ! -s "${DOWNLOAD_ARCHIVE_FILE}" ]]; then
-        printf "ERROR: Download archive file %s was not created successfully. Exiting...\n" "${DOWNLOAD_ARCHIVE_FILE}"
-        exit 1
-    fi
-    
-    # download archive is complete
-    printf "Download archive file for library %s created at %s\n\n" "${HOME_DIR}" "${DOWNLOAD_ARCHIVE_FILE}"
-
-}
 
 # print help
 function print_help {
@@ -523,6 +256,286 @@ function set_cookie_cmd {
 
 }
 
+# generates a list of channel urls from the info.json files in the library
+function generate_channel_urls_file {
+    # printf "Generating fresh channel urls file at %s\n." "${CHANNEL_LIST_URLS}"
+    # load the unavailable channel ids into a variable for quick lookup
+    local unavailable_ids
+    unavailable_ids=$'\n'$(<"${CHANNEL_UNAVAILABLE_FILE}")$'\n'
+    local channel_url_array=()
+
+    while IFS= read -r info_json_file; do
+        if [[ -f "${info_json_file}" ]]; then
+            if jq -er '.channel_url' "${info_json_file}" &>/dev/null && jq -er '.channel_id' "${info_json_file}" &>/dev/null; then
+                channel_url=$(jq -r '.channel_url' "${info_json_file}")
+                channel_id=$(jq -r '.channel_id' "${info_json_file}")
+                # check if channel_id is in the unavailable_ids list. skip if it is
+                case "${unavailable_ids}" in
+                    *$'\n'"${channel_id}"$'\n'*)
+                        # printf "Skipping unavailable channel %s.\n" "${channel_id}"
+                        continue
+                        ;;
+                esac
+
+                if [[ -n "${channel_url}" && "${channel_url}" == *"channel/UC"* ]]; then
+                    # printf "Validated UC channel_url %s in %s\n" "${channel_url}" "${info_json_file}"
+                    # echo "${channel_url}" >> "${CHANNEL_LIST_URLS}"
+                    # check if channel_url is already in the array
+                    local exists=false
+                    for element in "${channel_url_array[@]}"; do
+                        if [[ "$element" == "$channel_url" ]]; then
+                            exists=true
+                            break
+                        fi
+                    done
+                    if [[ "${exists}" == false ]]; then
+                        channel_url_array+=("${channel_url}")
+                        # printf "Added channel_url %s to array\n" "${channel_url}"
+                    fi
+                    
+                    # CHANNEL_URL_FOUND=true
+                    # exit file loop
+                    continue
+                    # printf "Channel URL found for %s in season dir %s and added to %s\n" "${channel_dir}" "${season_dir}" "${CHANNEL_LIST_URLS}"
+                fi
+            fi
+        fi  
+    done < <("${FIND_FILE}" "${HOME_DIR}" -type f -mindepth 2 -maxdepth 2 -name "*.info.json")
+    # Write channel_url_array to CHANNEL_LIST_URLS file, sorted and unique
+    printf '%s\n' "${channel_url_array[@]}" | sort -u > "${CHANNEL_LIST_URLS}"
+    printf "Generated channel urls file at %s with %s entries\n\n!" "${CHANNEL_LIST_URLS}" "$(cat "${CHANNEL_LIST_URLS}" | wc -l)"
+}
+
+# generates download archive file from current video inventory
+function generate_download_archive {
+    # Create inventory list
+    printf "Generating Download Archive for library %s\n" "${HOME_DIR}"
+    # cat "${INVENTORY_FILE}" "${BLACKLIST_FILE}" "${PRIVATED_FILE}" "${UNAVAILABLE_FILE}" > "${DOWNLOAD_ARCHIVE_FILE}"
+
+    # join columns 1 and 2 ( youtube and video id , minuse the error message column ) of files into the download archive file to skip them    
+    cat "${INVENTORY_FILE}" "${VIDEO_BLACKLIST_FILE}" "${VIDEO_UNAVAILABLE_FILE}" | gcut -d' ' --complement -f3-  > "${DOWNLOAD_ARCHIVE_FILE}"
+    # Sanity check to ensure that the download archive file was created successfully
+    if [[ ! -f "${DOWNLOAD_ARCHIVE_FILE}" || ! -s "${DOWNLOAD_ARCHIVE_FILE}" ]]; then
+        printf "ERROR: Download archive file %s was not created successfully. Exiting...\n" "${DOWNLOAD_ARCHIVE_FILE}"
+        exit 1
+    fi
+    
+    # download archive is complete
+    printf "Download archive file for library %s created at %s\n\n" "${HOME_DIR}" "${DOWNLOAD_ARCHIVE_FILE}"
+
+}
+
+function generate_inventory_file {
+    printf "Generating inventory file for library %s\n" "${HOME_DIR}"
+    "${FIND_FILE}" "${HOME_DIR}" -type f \( -name "*.mp4" -o -name "*.mkv" -o -name "*.webm" \) | sed -r 's/^.*\[(.*)\]\.(mp4|mkv|webm)$/\1/' | while read -r i;do echo "youtube ${i}";done > "${INVENTORY_FILE}"
+    printf "Inventory file for library %s created at %s\n\n" "${HOME_DIR}" "${INVENTORY_FILE}"
+}   
+
+function generate_wanted_list {
+    printf "Generating Wanted list.\n"
+    if [[ -n "${WANTED_HOME_DIR:-}" ]]; then
+        # create wanted list
+        printf "Generating Wanted list for wanted library %s\n" "${WANTED_HOME_DIR}"
+        "${FIND_FILE}" "${WANTED_HOME_DIR}" -type f \( -name "*.mp4" -o -name "*.mkv" -o -name "*.webm" \) | sed -r 's/^.*\[(.*)\]\.(mp4|mkv|webm)$/\1/' | while read -r i;do echo "youtube ${i}";done > "${WANTED_LIST_FILE}"
+        # Create download batch list that equals wanted list - inventory list - blacklist
+        printf "Generating wanted batch list file  %s\n" "${WANTED_BATCH_LIST_FILE}"
+        grep -v -f "${BLACKLIST_FILE}" "${WANTED_LIST_FILE}" > "${WANTED_BATCH_LIST_FILE}"
+        # validate that the wanted batch list file was created 
+        if [[ ! -f "${WANTED_BATCH_LIST_FILE}" || ! -s "${WANTED_BATCH_LIST_FILE}" ]]; then
+            printf "ERROR: Wanted batch list file %s was not created successfully. Exiting...\n" "${WANTED_BATCH_LIST_FILE}"
+            exit 1
+        fi
+
+        # grep -v -f ${INVENTORY_FILE} ${WANTED_LIST_FILE}  | grep -v -f ${BLACKLIST_FILE} > ${WANTED_BATCH_LIST_FILE}
+
+        # Convert batch list file to youtbe batch url list format for yt-dlp to consume
+        printf "Generating wanted batch list urls file  %s\n" "${WANTED_BATCH_LIST_URLS}"
+        sed -r 's/^youtube (.*)$/https:\/\/www.youtube.com\/watch?v=\1/' "${WANTED_BATCH_LIST_FILE}" > "${WANTED_BATCH_LIST_URLS}"
+    fi 
+
+    printf "Wanted list generated!\n\n"
+
+}
+
+
+# downloads youtube videos and metadata
+function download_videos {
+    printf "Downloading videos...\n"
+    printf "BATCH_FILE set to %s\n" "${BATCH_FILE}"
+    printf "DOWNLOAD_ARCHIVE_FILE set to %s\n" "${DOWNLOAD_ARCHIVE_FILE}"
+
+    YOUTUBE_LIBRARY_COUNT_START=$(wc -l < "${INVENTORY_FILE}")
+    printf "Before download: Your Youtube library has %s videos.\n" "${YOUTUBE_LIBRARY_COUNT_START}"
+    set +eo pipefail
+    # Download episodes
+    caffeinate "${YTDLP_FILE}" \
+        --add-metadata \
+        --batch-file "${BATCH_FILE}" \
+        "${COOKIE_ARGS[@]}" \
+        --download-archive "${DOWNLOAD_ARCHIVE_FILE}"  \
+        --write-subs \
+        --sub-langs en \
+        --embed-subs \
+        --embed-chapters \
+        --compat-options allow-unsafe-exec-expansion \
+        --ffmpeg-location "${FFMPEG_LOCATION}"  \
+        --exec "echo '%(channel_url)s' | grep -v -f ${CHANNEL_LIST_URLS} >> ${CHANNEL_LIST_URLS}" \
+        --exec "${TOUCH_FILE} -t '%(upload_date)s0000' '%(filepath)s'" \
+        --force-overwrites  \
+        --ignore-errors  \
+        --js-runtimes "deno:/opt/homebrew/bin/deno" \
+        --js-runtimes "node:/opt/homebrew/bin/node" \
+        --js-runtimes "quickjs:/opt/homebrew/bin/qjs" \
+        --mark-watched  \
+        --match-filters "is_live != true" \
+        --match-filters "was_live != true" \
+        --match-filters "availability != private" \
+        --match-filters "availability != subscriber_only" \
+        --match-filters "availability != needs_auth" \
+        --match-filters "original_url!*=/shorts/ & url!*=/shorts/"  \
+        --no-playlist  \
+        --no-progress \
+        --no-quiet  \
+        --no-warnings \
+        --no-write-playlist-metafiles \
+        --output "%(channel)s [%(channel_id)s]/Season %(upload_date>%Y)s/%(channel)s - S%(upload_date>%Y)sE%(upload_date>%m%d)s%(timestamp>%H%M%S)s - %(title)s [%(id)s].%(ext)s" \
+        --paths "home:${HOME_DIR}" \
+        --paths "temp:${TEMP_DIR}"  \
+        --remux-video mkv \
+        "${REPLACE_IN_METADATA_ARGS[@]}" \
+        -t "mkv" \
+        --verbose \
+        --write-info-json \
+        --embed-thumbnail \
+        --write-thumbnail \
+        --convert-thumbnails jpg \
+        > "${LOG_STDOUT_FILE_PATH}" 2> "${LOG_STDERR_FILE_PATH}"
+    set -eo pipefail    
+    # update the inventory file after the download is complete
+    generate_inventory_file
+    # cound the number of videos in the library after the download is complete
+    YOUTUBE_LIBRARY_COUNT_END=$(wc -l < "${DOWNLOAD_ARCHIVE_FILE}")
+    printf "Post download: Your Youtube library has %s videos. %s were added in this run.\n\n" " ${YOUTUBE_LIBRARY_COUNT_END}" "$(( YOUTUBE_LIBRARY_COUNT_END - YOUTUBE_LIBRARY_COUNT_START ))"
+}
+
+# Downloads video metadata only for all existing videos
+function download_video_metadata {
+    printf "Downloading video file metadata\n"
+    printf "BATCH_FILE set to %s\n" "${BATCH_FILE}"
+    printf "DOWNLOAD_ARCHIVE_FILE set to %s\n" "${DOWNLOAD_ARCHIVE_FILE}"
+
+    caffeinate "${YTDLP_FILE}" \
+        --add-metadata \
+        --batch-file "${BATCH_FILE}" \
+        "${COOKIE_ARGS[@]}" \
+        --write-subs \
+        --sub-langs en \
+        --embed-subs \
+        --embed-chapters \
+        --compat-options allow-unsafe-exec-expansion \
+        --ffmpeg-location "${FFMPEG_LOCATION}"  \
+        --exec "echo '%(channel_url)s' | grep -v -f ${CHANNEL_LIST_URLS} >> ${CHANNEL_LIST_URLS}" \
+        --exec "${TOUCH_FILE} -t '%(upload_date)s0000' '%(filepath)s'" \
+        --force-overwrites  \
+        --ignore-errors  \
+        --js-runtimes "deno:/opt/homebrew/bin/deno" \
+        --js-runtimes "node:/opt/homebrew/bin/node" \
+        --js-runtimes "quickjs:/opt/homebrew/bin/qjs" \
+        --remote-components ejs:npm \
+        --mark-watched  \
+        --match-filters "is_live != true" \
+        --match-filters "was_live != true" \
+        --match-filters "availability != private" \
+        --match-filters "availability != subscriber_only" \
+        --match-filters "availability != needs_auth" \
+        --match-filters "availability != subscriber_only" \
+        --match-filters "original_url!*=/shorts/ & url!*=/shorts/"  \
+        --no-playlist  \
+        --no-progress \
+        --no-quiet  \
+        --no-warnings \
+        --no-write-playlist-metafiles \
+        --output "%(channel)s [%(channel_id)s]/Season %(upload_date>%Y)s/%(channel)s - S%(upload_date>%Y)sE%(upload_date>%m%d)s%(timestamp>%H%M%S)s - %(title)s [%(id)s].%(ext)s" \
+        --paths "home:${HOME_DIR}" \
+        --paths "temp:${TEMP_DIR}"  \
+        --remux-video mkv \
+        --replace-in-metadata channel,title "/" "⧸" \
+        --replace-in-metadata channel,title "\?" "" \
+        --replace-in-metadata channel,title ":" "-" \
+        --replace-in-metadata channel,title "\*" "" \
+        --replace-in-metadata "channel,title" "ö" "oe" \
+        --replace-in-metadata "channel,title" "ä" "ae" \
+        --replace-in-metadata "channel,title" "ü" "ue" \
+        --replace-in-metadata "channel,title" "ß" "ss" \
+        --replace-in-metadata "channel,title" "İ" "I" \
+        --replace-in-metadata "channel,title" "ş" "s" \
+        --skip-download \
+        -t "mkv" \
+        --verbose \
+        --write-info-json \
+        --write-thumbnail \
+        --convert-thumbnails jpg \
+        > "${LOG_STDOUT_FILE_PATH}" 2> "${LOG_STDERR_FILE_PATH}"
+    printf "Video file metadata downloaded!\n\n"
+}
+
+# download channel metadata including thumbnails
+function download_channel_metadata {
+    printf "Downloading channel metadata for %s...\n" "${HOME_DIR}"
+    caffeinate "${YTDLP_FILE}" \
+        --batch-file "${CHANNEL_LIST_URLS}" \
+        --compat-options allow-unsafe-exec-expansion \
+        "${COOKIE_ARGS[@]}" \
+        --write-thumbnail \
+        --convert-thumbnails jpg \
+        --write-info-json \
+        --paths home:"${HOME_DIR}" \
+        --paths temp:"${TEMP_DIR}" \
+        "${REPLACE_IN_METADATA_ARGS[@]}" \
+        --skip-download \
+        --verbose \
+        --output "%(channel)s [%(channel_id)s]/%(title)s [%(channel_id)s]" \
+        --playlist-items '0,0' \
+        >> "${LOG_STDOUT_FILE_PATH}" 2>> "${LOG_STDERR_FILE_PATH}"
+    printf "Channel metadata for %s downloaded!\n\n" "${HOME_DIR}"
+    
+}
+
+
+# generates video and channel NFO files from info.json file data
+function generate_nfo_files {
+    printf "Generating NFO files for %s...\n" "${HOME_DIR}"
+    make
+    ./bin/yt-dlp-utils nfo --root-dir "${HOME_DIR}" 
+    printf "NFO files generated!\n\n"
+}
+
+# Updates the list of unavailable videos in the library
+function update_unavailable_video_file {
+    if [ ! -f "${LOG_STDERR_FILE_PATH}" ]; then
+        printf "Error log file %s does not exist.\n\n" "${LOG_STDERR_FILE_PATH}"
+        return 1
+    fi
+    # Extract unavailable video error messages from the error log
+    unavailable_video_files="$(grep -E "ERROR:.*" "${LOG_STDERR_FILE_PATH}" | sort -k 4 | cut -d' ' -f2,3,4-  | sed 's/[][]//g; s/://g')"   
+    unavailable_video_files="$(grep -v "rate-limited" <<< "${unavailable_video_files}")"   
+    unavailable_video_files="$(grep -v "Please sign in." <<< "${unavailable_video_files}")"   
+    unavailable_video_files="$(grep -v "Sign in to confirm your age." <<< "${unavailable_video_files}")"   
+    unavailable_video_files="$(grep -v "HTTP Error 404" <<< "${unavailable_video_files}")"   
+    # add the unavailable video files to the UNAVAILABLE_FILE
+    if [ -n "${unavailable_video_files}" ]; then
+        printf "%s\n" "${unavailable_video_files}" >> "${VIDEO_UNAVAILABLE_FILE}"
+        # make sure the VIDEO_UNAVAILABLE_FILE is unique and sorted
+        sort -o "${VIDEO_UNAVAILABLE_FILE}" -u "${VIDEO_UNAVAILABLE_FILE}"
+        sort -k 3 -o "${VIDEO_UNAVAILABLE_FILE}" "${VIDEO_UNAVAILABLE_FILE}"
+        printf "Unavailable video files updated in %s\n\n" "${VIDEO_UNAVAILABLE_FILE}"
+    else
+        printf "No unavailable video files found in the error log.\n\n"
+    fi        
+}
+
+
+
 # Start the main loop
 
 # Change cwd to the script's parent directory.
@@ -563,6 +576,7 @@ case "${ACTION}" in
             printf "Error: Downloading channel nfo files. Exiting...\n"
             exit 1
         fi
+        update_unavailable_video_file
         ;;
     download-video-metadata)
         printf "Action '%s' selected.\n" "${ACTION}"
@@ -596,6 +610,10 @@ case "${ACTION}" in
     generate-channel-urls)
         printf "Action '%s' selected.\n" "${ACTION}"
         generate_channel_urls_file
+        ;;
+    update-unavailable-videos)
+        printf "Action '%s' selected.\n" "${ACTION}"
+        update_unavailable_video_file
         ;;
     *)  
         printf "Action not %s not recognized. Exiting...\n" "${ACTION}"
