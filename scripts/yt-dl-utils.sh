@@ -432,15 +432,15 @@ function download_videos {
         --exec "echo '%(channel_url)s' | grep -v -f ${CHANNEL_LIST_URLS} >> ${CHANNEL_URLS_LIST_TMP_FILE} || true" \
         --exec "${TOUCH_FILE} -t '%(upload_date)s0000' '%(filepath)s'" \
         --force-overwrites  \
+        --ignore-no-formats-error \
         --js-runtimes "deno:/opt/homebrew/bin/deno" \
         --js-runtimes "node:/opt/homebrew/bin/node" \
         --js-runtimes "quickjs:/opt/homebrew/bin/qjs" \
         --mark-watched  \
         --match-filters "is_live != true" \
         --match-filters "was_live != true" \
-        --match-filters "availability != private" \
-        --match-filters "availability != subscriber_only" \
-        --match-filters "availability != needs_auth" \
+        --match-filters "live_status!=is_upcoming" \
+        --match-filters "availability!=subscriber_only" \
         --match-filters "original_url!*=/shorts/ & url!*=/shorts/"  \
         --no-abort-on-error  \
         --no-playlist  \
@@ -498,12 +498,11 @@ function download_video_metadata {
         --js-runtimes "node:/opt/homebrew/bin/node" \
         --js-runtimes "quickjs:/opt/homebrew/bin/qjs" \
         --mark-watched  \
+        --ignore-no-formats-error \
         --match-filters "is_live != true" \
         --match-filters "was_live != true" \
-        --match-filters "availability != private" \
-        --match-filters "availability != subscriber_only" \
-        --match-filters "availability != needs_auth" \
-        --match-filters "availability != subscriber_only" \
+        --match-filters "live_status!=is_upcoming" \
+        --match-filters "availability!=subscriber_only" \
         --match-filters "original_url!*=/shorts/ & url!*=/shorts/"  \
         --no-abort-on-error  \
         --no-playlist  \
@@ -520,12 +519,6 @@ function download_video_metadata {
         --replace-in-metadata channel,title "\?" "" \
         --replace-in-metadata channel,title ":" "-" \
         --replace-in-metadata channel,title "\*" "" \
-        --replace-in-metadata "channel,title" "ö" "oe" \
-        --replace-in-metadata "channel,title" "ä" "ae" \
-        --replace-in-metadata "channel,title" "ü" "ue" \
-        --replace-in-metadata "channel,title" "ß" "ss" \
-        --replace-in-metadata "channel,title" "İ" "I" \
-        --replace-in-metadata "channel,title" "ş" "s" \
         --skip-download \
         -t sleep \
         --verbose \
