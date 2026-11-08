@@ -155,6 +155,30 @@ function update_ytdlp {
     echo "$TODAY" > "$STAMP_FILE"
 }
 
+
+function validate_batch_file {
+
+    # create array of every line in the batc file that is not a comment
+    batch_file_lines=$(grep -v "^#" "${BATCH_FILE}")
+    # remove any lines that are valid youtube video urls
+    batch_file_lines=$(echo "${batch_file_lines}" | grep -vE "https://www.youtube.com/watch\?v=.{11}" || true)
+    # remove any lines that are valid youtube playlist urls
+    batch_file_lines=$(echo "${batch_file_lines}" | grep -vE "https://www.youtube.com/playlist\?list=PL[^&]+" || true)
+    # remove any lines that are valid youtube channel urls
+    batch_file_lines=$(echo "${batch_file_lines}" | grep -vE "https://www.youtube.com/(@.+|c/.+|user/.+)/videos" || true)
+    if [[ "${batch_file_lines}" ]];then
+        printf "ERROR: %s Malformed URL(s) found in batch file %s. Exiting...\n" "${batch_file_lines[@]}" "${BATCH_FILE}"
+        printf "Malformed URL(s):\n'%s'\n" "${batch_file_lines}"
+        return 1
+    else
+        printf "All URLs in batch file %s are valid!\n" "${BATCH_FILE}"
+        return 0
+    fi
+
+
+
+}
+
 # sets the batch file to used for downloading videos and metadata.
 function set_batch_file  {
     printf "Setting batch file...\n"
@@ -165,6 +189,7 @@ function set_batch_file  {
         export BATCH_FILE="${BATCH_LIST_URLS}"
     fi
     printf "Batch file set to %s!\n\n" "${BATCH_FILE}"
+    return 0
 }
 
 
@@ -384,21 +409,6 @@ function download_videos {
     YOUTUBE_LIBRARY_COUNT_START=$(wc -l < "${INVENTORY_FILE}")
     # check the batch file for malformed urls
     # test for bad video urls
-    # create array of every line in the batc file that is not a comment
-    batch_file_lines=$(grep -v "^#" "${BATCH_FILE}")
-    # remove any lines that are valid youtube video urls
-    batch_file_lines=$(echo "${batch_file_lines}" | grep -vE "https://www.youtube.com/watch\?v=.{11}" || true)
-    # remove any lines that are valid youtube playlist urls
-    batch_file_lines=$(echo "${batch_file_lines}" | grep -vE "https://www.youtube.com/playlist\?list=PL[^&]+" || true)
-    # remove any lines that are valid youtube channel urls
-    batch_file_lines=$(echo "${batch_file_lines}" | grep -vE "https://www.youtube.com/(@.+|c/.+|user/.+)/videos" || true)
-    if [[ "${batch_file_lines}" ]];then
-        printf "ERROR: %s Malformed URL(s) found in batch file %s. Exiting...\n" "${batch_file_lines[@]}" "${BATCH_FILE}"
-        printf "Malformed URL(s):\n'%s'\n" "${batch_file_lines}"
-        return 1
-    else
-        printf "All URLs in batch file %s are valid!\n" "${BATCH_FILE}"
-    fi
 
     # initialize temporary channel urls files for newly added channels during this run
     printf -v CHANNEL_URLS_LIST_TMP_FILE "%s/%s" "${LISTS_DIR}" "yt-dlp-new-channel-urls.txt"
@@ -601,14 +611,18 @@ check_required_variables
 check_required_directories
 check_required_files
 initialize_log_file
+update_ytdlp
 
 case "${ACTION}" in
     download-videos)
         printf "Action '%s' selected.\n" "${ACTION}"
-        update_ytdlp
         generate_inventory_file
         generate_download_archive
-        set_batch_file
+        set_batch_file 
+        if ! validate_batch_file; then
+            printf "Error: Setting batch file failed. Exiting...\n"
+            exit 1
+        fi
         if ! cleanup_temp_dir; then
             printf "Error: Cleaning up temp dir failed. Exiting...\n"
             exit 1
@@ -637,13 +651,17 @@ case "${ACTION}" in
         ;;
     download-video-metadata)
         printf "Action '%s' selected.\n" "${ACTION}"
-        update_ytdlp
         generate_inventory_file
         generate_download_archive
         if [ ! -z "${WANTED_HOME_DIR}" ]; then 
             generate_wanted_list
         fi
         set_batch_file
+        if ! validate_batch_file; then
+            printf "Error: Setting batch file failed. Exiting...\n"
+            exit 1
+        fi
+
         if ! cleanup_temp_dir; then
             printf "Error: Cleaning up temp dir failed. Exiting...\n"
             exit 1
@@ -660,8 +678,11 @@ case "${ACTION}" in
         ;;
     download-channel-metadata)
         printf "Action '%s' selected.\n" "${ACTION}"
-        update_ytdlp
         set_batch_file
+        if ! validate_batch_file; then
+            printf "Error: Setting batch file failed. Exiting...\n"
+            exit 1
+        fi
         if ! cleanup_temp_dir; then
             printf "Error: Cleaning up temp dir failed. Exiting...\n"
             exit 1
