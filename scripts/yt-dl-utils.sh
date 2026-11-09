@@ -169,7 +169,7 @@ function validate_batch_file {
     # remove any lines that are valid youtube playlist urls
     batch_file_lines=$(echo "${batch_file_lines}" | grep -vE "https://www.youtube.com/playlist\?list=PL[^&]+" || true)
     # remove any lines that are valid youtube channel urls
-    batch_file_lines=$(echo "${batch_file_lines}" | grep -vE "https://www.youtube.com/(@.+|c/.+|user/.+)/videos" || true)
+    batch_file_lines=$(echo "${batch_file_lines}" | grep -vE "https://www.youtube.com/(@.+|c/.+|user/.+)/(videos|shorts)" || true)
     if [[ "${batch_file_lines}" ]];then
         printf "ERROR: %s Malformed URL(s) found in batch file %s. Exiting...\n" "${batch_file_lines[@]}" "${BATCH_FILE}"
         printf "Malformed URL(s):\n'%s'\n" "${batch_file_lines}"
@@ -393,8 +393,8 @@ function download_videos {
         --embed-chapters \
         --compat-options allow-unsafe-exec-expansion \
         --ffmpeg-location "${FFMPEG_LOCATION}"  \
-        --exec "echo '%(channel_url)s' | grep -v -f ${CHANNEL_LIST_URLS} >> ${CHANNEL_URLS_LIST_TMP_FILE} || true" \
-        --exec "${TOUCH_FILE} -t '%(upload_date)s0000' '%(filepath)s'" \
+        --exec "echo '%(channel_url)q' | grep -v -f ${CHANNEL_LIST_URLS} >> ${CHANNEL_URLS_LIST_TMP_FILE} || true" \
+        --exec "${TOUCH_FILE} -t '%(upload_date)s0000' '%(filepath)q'" \
         --force-overwrites  \
         --ignore-no-formats-error \
         --js-runtimes "deno:/opt/homebrew/bin/deno" \
@@ -458,7 +458,7 @@ function download_video_metadata {
         --embed-chapters \
         --compat-options allow-unsafe-exec-expansion \
         --ffmpeg-location "${FFMPEG_LOCATION}"  \
-        --exec "${TOUCH_FILE} -t '%(upload_date)s0000' '%(filepath)s'" \
+        --exec "${TOUCH_FILE} -t '%(upload_date)s0000' '%(filepath)q'" \
         --force-overwrites  \
         --js-runtimes "deno:/opt/homebrew/bin/deno" \
         --js-runtimes "node:/opt/homebrew/bin/node" \
