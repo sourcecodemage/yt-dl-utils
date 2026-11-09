@@ -10,14 +10,6 @@ declare -a REPLACE_IN_METADATA_ARGS=(
         '--replace-in-metadata channel,title "\*" ""'
 )
 
-        # '--replace-in-metadata "channel,title" "ä" "ae"'
-        # '--replace-in-metadata "channel,title" "ß" "ss"'
-        # '--replace-in-metadata "channel,title" "ë" "e"'
-        # '--replace-in-metadata "channel,title" "ö" "oe"'
-        # '--replace-in-metadata "channel,title" "İ" "I"'
-        # '--replace-in-metadata "channel,title" "ş" "s"'
-        # '--replace-in-metadata "channel,title" "ü" "ue"'
-
 function cleanup_temp_dir {
     if [[ -n "${FIND_FILE:-}" && -f "${FIND_FILE}" ]]; then 
         # first delete .DS_Store files
@@ -309,8 +301,8 @@ function generate_channel_urls_file {
     # clear the channel urls file before generating a new one
     :> "${CHANNEL_LIST_URLS}"
     # "${FIND_FILE}" "${HOME_DIR}" -mindepth 1 -maxdepth 1 -type d | "${GREP_FILE}" -oP "\[\KUC[^\]]+" > "${CHANNEL_LIST_URLS}"  
-    "${FIND_FILE}" "${HOME_DIR}" -mindepth 1 -maxdepth 1 -type d | "${GREP_FILE}" -oP "\[\KUC[^\]]+" | while read -r i; do 
-        grep -v -f "${CHANNEL_UNAVAILABLE_FILE}" <<< "$i" &>/dev/null && echo "https://www.youtube.com/channel/$i" >> "${CHANNEL_LIST_URLS}"        
+    "${FIND_FILE}" "${HOME_DIR}" -mindepth 1 -maxdepth 1 -type d | "${GREP_FILE}" -oP "\[\KUC[^\]]+" | while read -r channel_id; do 
+        grep -v -f "${CHANNEL_UNAVAILABLE_FILE}" <<< "$channel_id" &>/dev/null && echo "https://www.youtube.com/channel/$channel_id" >> "${CHANNEL_LIST_URLS}"        
     done 
     printf "Generated channel urls file at %s with %s entries!\n\n" "${CHANNEL_LIST_URLS}" "$(cat "${CHANNEL_LIST_URLS}" | wc -l)"
 }
@@ -545,6 +537,27 @@ function generate_nfo_files {
     return 0
 }
 
+# Updates the list of unavailable channels in the library
+function update_unavailable_channel_file {
+    if [ ! -f "${DOWNLOAD_CHANNEL_METADATA_LOG_FILE_PATH}" ]; then
+        printf "Channel log file %s does not exist.\n\n" "${DOWNLOAD_CHANNEL_METADATA_LOG_FILE_PATH}"
+        return 1
+    fi
+    # Extract unavailable video error messages from the error log
+    unavailable_channels="$(grep -E "ERROR:.*" "${DOWNLOAD_CHANNEL_METADATA_LOG_FILE_PATH}" | sort -k 4 | cut -d' ' -f3,4- | sed 's/[][]//g; s/://g')"   
+    # Example line to filter out certain errors = unavailable_channels="$(grep -v "rate-limited" <<< "${unavailable_channels}" || true)"   
+    # add the unavailable video files to the UNAVAILABLE_FILE
+    if [ -n "${unavailable_channels}" ]; then
+        printf "%s\n" "${unavailable_channels}" >> "${CHANNEL_UNAVAILABLE_FILE}"
+        # make sure the VIDEO_UNAVAILABLE_FILE is unique and sorted
+        sort -o "${CHANNEL_UNAVAILABLE_FILE}" -u "${CHANNEL_UNAVAILABLE_FILE}"
+        sort -k 2 -o "${CHANNEL_UNAVAILABLE_FILE}" "${CHANNEL_UNAVAILABLE_FILE}"
+        printf "Unavailable video files updated in %s\n\n" "${CHANNEL_UNAVAILABLE_FILE}"
+    else
+        printf "No unavailable video files found in the error log.\n\n"
+    fi        
+}
+
 # Updates the list of unavailable videos in the library
 function update_unavailable_video_file {
     if [ ! -f "${DOWNLOAD_VIDEOS_LOG_FILE_PATH}" ]; then
@@ -611,6 +624,10 @@ case "${ACTION}" in
             printf "Error: Downloading videos failed. Exiting...\n"
             exit 1
         fi
+        if ! update_unavailable_video_file; then   
+            printf "Error: Updating unavailable video file failed. Exiting...\n"
+            exit 1
+        fi
         if ! cleanup_temp_dir; then
             printf "Error: Cleaning up temp dir failed. Exiting...\n"
             exit 1
@@ -619,16 +636,16 @@ case "${ACTION}" in
             printf "Error: Downloading channel metadata failed. Exiting...\n"
             exit 1
         fi
+        if ! update_unavailable_channel_file; then   
+            printf "Error: Updating unavailable channel file failed. Exiting...\n"
+            exit 1
+        fi
         if ! cleanup_temp_dir; then
             printf "Error: Cleaning up temp dir failed. Exiting...\n"
             exit 1
         fi
         if ! generate_channel_urls_file; then
             printf "Error: Generating channel urls file failed. Exiting...\n\n"
-            exit 1
-        fi
-        if ! update_unavailable_video_file; then   
-            printf "Error: Updating unavailable video file failed. Exiting...\n"
             exit 1
         fi
         if ! generate_nfo_files; then
@@ -669,6 +686,10 @@ case "${ACTION}" in
             printf "Error: Downloading video metadata failed. Exiting...\n\n"
             exit 1
         fi
+        if ! update_unavailable_video_file; then   
+            printf "Error: Updating unavailable video file failed. Exiting...\n"
+            exit 1
+        fi
         if ! cleanup_temp_dir; then
             printf "Error: Cleaning up temp dir failed. Exiting...\n\n"
             exit 1
@@ -700,6 +721,10 @@ case "${ACTION}" in
             printf "Error: Downloading channel metadate failed. Exiting...\n\n"
             exit 1
         fi
+        if ! update_unavailable_channel_file; then
+            printf "Error: Cleaning up temp dir failed. Exiting...\n\n"
+            exit 1
+        fi
         if ! cleanup_temp_dir; then
             printf "Error: Cleaning up temp dir failed. Exiting...\n\n"
             exit 1
@@ -713,6 +738,13 @@ case "${ACTION}" in
         printf "Action '%s' selected.\n" "${ACTION}"
         if ! generate_channel_urls_file; then
             printf "Error: Generating channel urls file failed. Exiting...\n\n"
+            exit 1
+        fi
+        ;;
+    update-unavailable-channels)
+        printf "Action '%s' selected.\n" "${ACTION}"
+        if ! update_unavailable_channel_file; then 
+            printf "Error: Updating unavailable channel file failed. Exiting...\n\n"
             exit 1
         fi
         ;;
