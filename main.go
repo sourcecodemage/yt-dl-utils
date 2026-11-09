@@ -73,8 +73,8 @@ func findFiles(root_dir_path, file_extension string) ([]string, error) {
 			return err // Stop walking if a directory cannot be read
 		}
 
-		// Check if it's a file and matches the target extension
-		if !d.IsDir() && strings.HasSuffix(strings.ToLower(path), file_extension) {
+		// Check if it's a file and matches the target extension. Excludes apple nfo metadata files starting with "._" and other hidden files.
+		if !d.IsDir() && strings.HasSuffix(strings.ToLower(path), file_extension) && !strings.HasPrefix(filepath.Base(path), "._") {
 			matches = append(matches, path)
 		}
 
@@ -252,7 +252,7 @@ func createNfoFiles(infojson_files []string, nfo_files []string, force bool) err
 			fmt.Printf("Error: info.json file %s is empty\n", infojson_file)
 			return fmt.Errorf("info.json file %s is empty", infojson_file)
 		}
-		var dataMap map[string]interface{}
+		var dataMap map[string]any
 		err = json.Unmarshal(data, &dataMap)
 		if err != nil {
 			return err
@@ -681,14 +681,15 @@ func safeString(input string) string {
 		"?", "",
 		":", "-",
 		"*", "",
-		"ä", "ae",
-		"ë", "e",
-		"ß", "ss",
-		"İ", "I",
-		"ö", "oe",
-		"ş", "s",
-		"ü", "ue",
 	)
+	// "ä", "ae",
+	// "ë", "e",
+	// "ß", "ss",
+	// "İ", "I",
+	// "ö", "oe",
+	// "ş", "s",
+	// "ü", "ue",
+
 	return replacer.Replace(input)
 
 }

@@ -1,7 +1,7 @@
-#!/bin/bash
+#!/opt/homebrew/bin/bash
 
-# printf "%s START %s script starting.\n" "$(date +"%Y%m%d_%H%M%S")" "${0}"
 set -eEo pipefail -o functrace
+shopt -s inherit_errexit
 
 declare -a REPLACE_IN_METADATA_ARGS=(
         '--replace-in-metadata channel,title "/" "⧸"'
@@ -141,8 +141,10 @@ function update_ytdlp {
 
     # Check if the file exists and matches today's date
     if [[ -f "$STAMP_FILE" ]] && [[ "$(cat "$STAMP_FILE")" == "$TODAY" ]]; then
-        echo "Command already ran today ($TODAY). Skipping."
-        exit 0
+        echo "yt-dlp update already ran today ($TODAY). Skipping update."
+        YTDLP_VERSION=$("${YTDLP_FILE}" --version)
+        printf "Proceeding with %s nightly branch version %s\n\n" "${YTDLP_FILE}" "${YTDLP_VERSION}"
+        return 0
     fi
 
     PRE_VERSION=$("${YTDLP_FILE}" --version)
@@ -153,9 +155,11 @@ function update_ytdlp {
 
     # Record today's date only if the command succeeded
     echo "$TODAY" > "$STAMP_FILE"
+    return 0
 }
 
 
+# check the batch file for malformed urls and return 1 if any are found, otherwise return 0
 function validate_batch_file {
 
     # create array of every line in the batc file that is not a comment
@@ -175,13 +179,11 @@ function validate_batch_file {
         return 0
     fi
 
-
-
 }
 
 # sets the batch file to used for downloading videos and metadata.
 function set_batch_file  {
-    printf "Setting batch file...\n"
+    printf "Setting batch file..."
     # set the batch file to be used in this run
     if [[ -n "${WANTED_HOME_DIR:-}" ]]; then
         export BATCH_FILE="${WANTED_BATCH_LIST_URLS}"
@@ -277,6 +279,7 @@ function load_env {
     printf "Sourcing environment file...\n"
     # Source env file. Throw error if it does not exist.
     if [ -f "${ENV_FILE}" ]; then
+        # shellcheck source=/dev/null
         source "${ENV_FILE}"
     else
         printf "Env file %s not found. Exiting..." "${ENV_FILE}"
@@ -290,7 +293,7 @@ function set_cookie_cmd {
 
     printf "Setting the cookie command...\n"
     COOKIE_ARGS=()
-    if [[ -n "${COOKIES_FROM_FILE:-}" ]];then 
+    if [[ -n "${COOKIES_FROM_FILE:-}" && -f "${COOKIES_FROM_FILE}" ]];then 
         COOKIE_ARGS=(--cookies "${COOKIES_FROM_FILE}")
     elif [[ -n "${COOKIES_FROM_BROWSER:-}" ]];then 
         COOKIE_ARGS=(--cookies-from-browser "${COOKIES_FROM_BROWSER}")
@@ -302,52 +305,14 @@ function set_cookie_cmd {
 
 # generates a list of channel urls from the info.json files in the library
 function generate_channel_urls_file {
-    # printf "Generating fresh channel urls file at %s\n." "${CHANNEL_LIST_URLS}"
-    # load the unavailable channel ids into a variable for quick lookup
-    local unavailable_ids
-    unavailable_ids=$'\n'$(<"${CHANNEL_UNAVAILABLE_FILE}")$'\n'
-    local channel_url_array=()
-
-    while IFS= read -r info_json_file; do
-        if [[ -f "${info_json_file}" ]]; then
-            if jq -er '.channel_url' "${info_json_file}" &>/dev/null && jq -er '.channel_id' "${info_json_file}" &>/dev/null; then
-                channel_url=$(jq -r '.channel_url' "${info_json_file}")
-                channel_id=$(jq -r '.channel_id' "${info_json_file}")
-                # check if channel_id is in the unavailable_ids list. skip if it is
-                case "${unavailable_ids}" in
-                    *$'\n'"${channel_id}"$'\n'*)
-                        # printf "Skipping unavailable channel %s.\n" "${channel_id}"
-                        continue
-                        ;;
-                esac
-
-                if [[ -n "${channel_url}" && "${channel_url}" == *"channel/UC"* ]]; then
-                    # printf "Validated UC channel_url %s in %s\n" "${channel_url}" "${info_json_file}"
-                    # echo "${channel_url}" >> "${CHANNEL_LIST_URLS}"
-                    # check if channel_url is already in the array
-                    local exists=false
-                    for element in "${channel_url_array[@]}"; do
-                        if [[ "$element" == "$channel_url" ]]; then
-                            exists=true
-                            break
-                        fi
-                    done
-                    if [[ "${exists}" == false ]]; then
-                        channel_url_array+=("${channel_url}")
-                        # printf "Added channel_url %s to array\n" "${channel_url}"
-                    fi
-                    
-                    # CHANNEL_URL_FOUND=true
-                    # exit file loop
-                    continue
-                    # printf "Channel URL found for %s in season dir %s and added to %s\n" "${channel_dir}" "${season_dir}" "${CHANNEL_LIST_URLS}"
-                fi
-            fi
-        fi  
-    done < <("${FIND_FILE}" "${HOME_DIR}" -type f -mindepth 2 -maxdepth 2 -name "*.info.json")
-    # Write channel_url_array to CHANNEL_LIST_URLS file, sorted and unique
-    printf '%s\n' "${channel_url_array[@]}" | sort -u > "${CHANNEL_LIST_URLS}"
-    printf "Generated channel urls file at %s with %s entries\n\n!" "${CHANNEL_LIST_URLS}" "$(cat "${CHANNEL_LIST_URLS}" | wc -l)"
+    printf "Generating fresh channel urls file at %s\n" "${CHANNEL_LIST_URLS}"
+    # clear the channel urls file before generating a new one
+    :> "${CHANNEL_LIST_URLS}"
+    # "${FIND_FILE}" "${HOME_DIR}" -mindepth 1 -maxdepth 1 -type d | "${GREP_FILE}" -oP "\[\KUC[^\]]+" > "${CHANNEL_LIST_URLS}"  
+    "${FIND_FILE}" "${HOME_DIR}" -mindepth 1 -maxdepth 1 -type d | "${GREP_FILE}" -oP "\[\KUC[^\]]+" | while read -r i; do 
+        grep -v -f "${CHANNEL_UNAVAILABLE_FILE}" <<< "$i" &>/dev/null && echo "https://www.youtube.com/channel/$i" >> "${CHANNEL_LIST_URLS}"        
+    done 
+    printf "Generated channel urls file at %s with %s entries!\n\n" "${CHANNEL_LIST_URLS}" "$(cat "${CHANNEL_LIST_URLS}" | wc -l)"
 }
 
 # generates download archive file from current video inventory
@@ -396,6 +361,7 @@ function generate_wanted_list {
     fi 
 
     printf "Wanted list generated!\n\n"
+    return 0
 
 }
 
@@ -415,7 +381,6 @@ function download_videos {
     :> "${CHANNEL_URLS_LIST_TMP_FILE}"
     # Start the video download process and log the output to the download videos log file
     printf "Before download: Your Youtube library has %s videos.\n" "${YOUTUBE_LIBRARY_COUNT_START}"
-    # set +eo pipefail
     # Download episodes
     caffeinate "${YTDLP_FILE}" \
         --add-metadata \
@@ -428,7 +393,6 @@ function download_videos {
         --embed-chapters \
         --compat-options allow-unsafe-exec-expansion \
         --ffmpeg-location "${FFMPEG_LOCATION}"  \
-        --exec "echo '%(channel_url)s' | grep -v -f ${CHANNEL_LIST_URLS} >> ${CHANNEL_LIST_URLS} || true"  \
         --exec "echo '%(channel_url)s' | grep -v -f ${CHANNEL_LIST_URLS} >> ${CHANNEL_URLS_LIST_TMP_FILE} || true" \
         --exec "${TOUCH_FILE} -t '%(upload_date)s0000' '%(filepath)s'" \
         --force-overwrites  \
@@ -464,12 +428,15 @@ function download_videos {
         --write-thumbnail \
         --convert-thumbnails jpg \
         &> "${DOWNLOAD_VIDEOS_LOG_FILE_PATH}"
-    # set -eo pipefail    
     # update the inventory file after the download is complete
-    generate_inventory_file
+    if ! generate_inventory_file; then 
+        printf "Error: Generating inventory file failed. Exiting...\n\n"
+        return 1
+    fi
     # count the number of videos in the library after the download is complete
     YOUTUBE_LIBRARY_COUNT_END=$(wc -l < "${DOWNLOAD_ARCHIVE_FILE}")
     printf "Post download: Your Youtube library has %s videos. %s were added in this run.\n\n" " ${YOUTUBE_LIBRARY_COUNT_END}" "$(( YOUTUBE_LIBRARY_COUNT_END - YOUTUBE_LIBRARY_COUNT_START ))"
+    return 0
 }
 
 # Downloads video metadata only for all existing videos
@@ -491,7 +458,6 @@ function download_video_metadata {
         --embed-chapters \
         --compat-options allow-unsafe-exec-expansion \
         --ffmpeg-location "${FFMPEG_LOCATION}"  \
-        --exec "echo '%(channel_url)s' | grep -v -f ${CHANNEL_LIST_URLS} >> ${CHANNEL_LIST_URLS} || true" \
         --exec "${TOUCH_FILE} -t '%(upload_date)s0000' '%(filepath)s'" \
         --force-overwrites  \
         --js-runtimes "deno:/opt/homebrew/bin/deno" \
@@ -532,14 +498,19 @@ function download_video_metadata {
 # download channel metadata including thumbnails
 function download_channel_metadata {
     # set the batch file to be used in this run
+    if [ ! -z "${CHANNEL_URLS_LIST_TMP_FILE}" ]  && [ -s "${CHANNEL_URLS_LIST_TMP_FILE}" ]; then 
+        CHANNEL_LIST_URLS_FILE="${CHANNEL_URLS_LIST_TMP_FILE}"
+    else
+        CHANNEL_LIST_URLS_FILE="${CHANNEL_LIST_URLS}"
+    fi
     printf "Downloading channel metadata for %s...\n" "${HOME_DIR}"
-    printf "BATCH_FILE set to %s\n" "${CHANNEL_URLS_LIST_TMP_FILE:-CHANNEL_LIST_URLS}"
+    printf "BATCH_FILE set to %s\n" "${CHANNEL_LIST_URLS_FILE}"
     printf "DOWNLOAD_ARCHIVE_FILE set to %s\n" "${DOWNLOAD_ARCHIVE_FILE}"
     printf "DOWNLOAD_CHANNEL_METADATA_LOG_FILE_PATH set to %s\n" "${DOWNLOAD_CHANNEL_METADATA_LOG_FILE_PATH}"
     :> "${DOWNLOAD_CHANNEL_METADATA_LOG_FILE_PATH}"
-
+    CHANNEL_COUNT=$(wc -l < "${CHANNEL_LIST_URLS_FILE}")
     caffeinate "${YTDLP_FILE}" \
-        --batch-file "${CHANNEL_URLS_LIST_TMP_FILE:-CHANNEL_LIST_URLS}" \
+        --batch-file "${CHANNEL_LIST_URLS_FILE}" \
         --compat-options allow-unsafe-exec-expansion \
         "${COOKIE_ARGS[@]}" \
         --write-thumbnail \
@@ -548,23 +519,30 @@ function download_channel_metadata {
         --no-abort-on-error  \
         --paths home:"${HOME_DIR}" \
         --paths temp:"${TEMP_DIR}" \
-        "${REPLACE_IN_METADATA_ARGS[@]}" \
+        --replace-in-metadata channel,title "/" "⧸" \
+        --replace-in-metadata channel,title "\?" "" \
+        --replace-in-metadata channel,title ":" "-" \
+        --replace-in-metadata channel,title "\*" "" \
         --skip-download \
         -t sleep \
         --verbose \
         --output "%(channel)s [%(channel_id)s]/%(title)s [%(channel_id)s]" \
         --playlist-items '0,0' \
         &> "${DOWNLOAD_CHANNEL_METADATA_LOG_FILE_PATH}"
-    printf "Channel metadata for %s downloaded!\n\n" "${HOME_DIR}"
-    
+    printf "Channel metadata for %s downloaded for %s channels using channel urls file %s\n\n" "${HOME_DIR}" "${CHANNEL_COUNT}" "${CHANNEL_LIST_URLS_FILE}"
+    return 0
 }
 
 # generates video and channel NFO files from info.json file data
 function generate_nfo_files {
-    printf "Generating NFO files for %s...\n" "${HOME_DIR}"
+    printf "Generating NFO files for %s..." "${HOME_DIR}"
     make
-    ./bin/yt-dlp-utils nfo --root-dir "${HOME_DIR}" 
-    printf "NFO files generated!\n\n"
+    if ! ./bin/yt-dlp-utils nfo --root-dir "${HOME_DIR}"; then
+        printf "Error: Generating NFO files failed.\n\n"
+        return 1
+    fi
+    printf "NFO files generated successfully!\n\n"
+    return 0
 }
 
 # Updates the list of unavailable videos in the library
@@ -609,9 +587,18 @@ update_ytdlp
 case "${ACTION}" in
     download-videos)
         printf "Action '%s' selected.\n" "${ACTION}"
-        generate_inventory_file
-        generate_download_archive
-        set_batch_file 
+        if ! generate_inventory_file; then
+            printf "Error: Generating inventory file failed. Exiting...\n\n"
+            exit 1
+        fi
+        if ! generate_download_archive; then
+            printf "Error: Generating download archive failed. Exiting...\n\n"
+            exit 1
+        fi
+        if ! set_batch_file; then
+            printf "Error: Setting batch file failed. Exiting...\n"
+            exit 1
+        fi
         if ! validate_batch_file; then
             printf "Error: Setting batch file failed. Exiting...\n"
             exit 1
@@ -636,71 +623,112 @@ case "${ACTION}" in
             printf "Error: Cleaning up temp dir failed. Exiting...\n"
             exit 1
         fi
+        if ! generate_channel_urls_file; then
+            printf "Error: Generating channel urls file failed. Exiting...\n\n"
+            exit 1
+        fi
+        if ! update_unavailable_video_file; then   
+            printf "Error: Updating unavailable video file failed. Exiting...\n"
+            exit 1
+        fi
         if ! generate_nfo_files; then
             printf "Error: Downloading channel nfo files. Exiting...\n"
             exit 1
         fi
-        update_unavailable_video_file
         ;;
     download-video-metadata)
         printf "Action '%s' selected.\n" "${ACTION}"
-        generate_inventory_file
-        generate_download_archive
-        if [ ! -z "${WANTED_HOME_DIR}" ]; then 
-            generate_wanted_list
+        if ! generate_inventory_file; then
+            printf "Error: Generating inventory file failed. Exiting...\n\n"
+            exit 1
         fi
-        set_batch_file
+        if ! generate_download_archive; then
+            printf "Error: Generating download archive failed. Exiting...\n\n"
+            exit 1
+        fi
+        if [ ! -z "${WANTED_HOME_DIR}" ]; then 
+            if ! generate_wanted_list; then
+                printf "Error: Generating wanted list failed. Exiting...\n\n"
+                exit 1
+            fi
+        fi
+        if ! set_batch_file; then
+            printf "Error: Setting batch file failed. Exiting...\n\n"
+            exit 1
+        fi
         if ! validate_batch_file; then
-            printf "Error: Setting batch file failed. Exiting...\n"
+            printf "Error: Setting batch file failed. Exiting...\n\n"
             exit 1
         fi
 
         if ! cleanup_temp_dir; then
-            printf "Error: Cleaning up temp dir failed. Exiting...\n"
+            printf "Error: Cleaning up temp dir failed. Exiting...\n\n"
             exit 1
         fi
-        download_video_metadata
+        if ! download_video_metadata; then
+            printf "Error: Downloading video metadata failed. Exiting...\n\n"
+            exit 1
+        fi
         if ! cleanup_temp_dir; then
-            printf "Error: Cleaning up temp dir failed. Exiting...\n"
+            printf "Error: Cleaning up temp dir failed. Exiting...\n\n"
             exit 1
         fi
         if ! generate_nfo_files; then
-            printf "Error: Downloading channel nfo files. Exiting...\n"
+            printf "Error: Downloading channel nfo files. Exiting...\n\n"
             exit 1
         fi
         ;;
     download-channel-metadata)
         printf "Action '%s' selected.\n" "${ACTION}"
-        set_batch_file
+        if ! set_batch_file; then
+            printf "Error: Setting batch file failed. Exiting...\n\n"
+            exit 1
+        fi
         if ! validate_batch_file; then
-            printf "Error: Setting batch file failed. Exiting...\n"
+            printf "Error: Setting batch file failed. Exiting...\n\n"
             exit 1
         fi
         if ! cleanup_temp_dir; then
-            printf "Error: Cleaning up temp dir failed. Exiting...\n"
+            printf "Error: Cleaning up temp dir failed. Exiting...\n\n"
             exit 1
         fi
-
+        if ! generate_channel_urls_file; then
+            printf "Error: Generating channel urls file failed. Exiting...\n\n"
+            exit 1
+        fi
         if ! download_channel_metadata; then
-            printf "Error: Downloading channel metadate failed. Exiting...\n"
+            printf "Error: Downloading channel metadate failed. Exiting...\n\n"
             exit 1
         fi
         if ! cleanup_temp_dir; then
-            printf "Error: Cleaning up temp dir failed. Exiting...\n"
+            printf "Error: Cleaning up temp dir failed. Exiting...\n\n"
             exit 1
         fi
         if ! generate_nfo_files; then
-            printf "Error: Downloading channel nfo files. Exiting...\n"
+            printf "Error: Failed to generate channel nfo files. Exiting...\n\n"
             exit 1
         fi
         ;;
     generate-channel-urls)
         printf "Action '%s' selected.\n" "${ACTION}"
-        generate_channel_urls_file
+        if ! generate_channel_urls_file; then
+            printf "Error: Generating channel urls file failed. Exiting...\n\n"
+            exit 1
+        fi
         ;;
     update-unavailable-videos)
         printf "Action '%s' selected.\n" "${ACTION}"
-        update_unavailable_video_file
+        if ! update_unavailable_video_file; then 
+            printf "Error: Updating unavailable video file failed. Exiting...\n\n"
+            exit 1
+        fi
+        ;;
+    generate-nfo-files)
+        printf "Action '%s' selected.\n" "${ACTION}"
+        if ! generate_nfo_files; then
+            printf "Error: Failed to generate nfo files. Exiting...\n\n"
+            exit 1
+        fi
         ;;
     *)  
         printf "Action not %s not recognized. Exiting...\n" "${ACTION}"
@@ -708,7 +736,3 @@ case "${ACTION}" in
         exit 1
         ;;
 esac
-
-
-
-
