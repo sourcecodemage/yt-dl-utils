@@ -1,6 +1,5 @@
 #!/opt/homebrew/bin/bash
-
-set -eEo pipefail -o functrace
+set -e -u -E -o pipefail -o functrace
 shopt -s inherit_errexit
 
 declare -a REPLACE_IN_METADATA_ARGS=(
@@ -386,7 +385,7 @@ function download_videos {
         --compat-options allow-unsafe-exec-expansion \
         --ffmpeg-location "${FFMPEG_LOCATION}"  \
         --exec "echo '%(channel_url)q' | grep -v -f ${CHANNEL_LIST_URLS} >> ${CHANNEL_URLS_LIST_TMP_FILE} || true" \
-        --exec "${TOUCH_FILE} -t '%(upload_date)s0000' '%(filepath)q'" \
+        --exec "${TOUCH_FILE} -t '%(upload_date)q0000' '%(filepath)q'" \
         --force-overwrites  \
         --ignore-no-formats-error \
         --js-runtimes "deno:/opt/homebrew/bin/deno" \
@@ -404,7 +403,7 @@ function download_videos {
         --no-quiet  \
         --no-warnings \
         --no-write-playlist-metafiles \
-        --output "%(channel)s [%(channel_id)s]/Season %(upload_date>%Y)s/%(channel)s - S%(upload_date>%Y)sE%(upload_date>%m%d)s%(timestamp>%H%M%S)s - %(title)s [%(id)s].%(ext)s" \
+        --output "%(channel)q [%(channel_id)q]/Season %(upload_date>%Y)s/%(channel)q - S%(upload_date>%Y)sE%(upload_date>%m%d)s%(timestamp>%H%M%S)s - %(title)q [%(id)q].%(ext)q" \
         --paths "home:${HOME_DIR}" \
         --paths "temp:${TEMP_DIR}"  \
         --remux-video mkv \
@@ -450,7 +449,7 @@ function download_video_metadata {
         --embed-chapters \
         --compat-options allow-unsafe-exec-expansion \
         --ffmpeg-location "${FFMPEG_LOCATION}"  \
-        --exec "${TOUCH_FILE} -t '%(upload_date)s0000' '%(filepath)q'" \
+        --exec "${TOUCH_FILE} -t '%(upload_date)q0000' '%(filepath)q'" \
         --force-overwrites  \
         --js-runtimes "deno:/opt/homebrew/bin/deno" \
         --js-runtimes "node:/opt/homebrew/bin/node" \
@@ -468,7 +467,7 @@ function download_video_metadata {
         --no-quiet  \
         --no-warnings \
         --no-write-playlist-metafiles \
-        --output "%(channel)s [%(channel_id)s]/Season %(upload_date>%Y)s/%(channel)s - S%(upload_date>%Y)sE%(upload_date>%m%d)s%(timestamp>%H%M%S)s - %(title)s [%(id)s].%(ext)s" \
+        --output "%(channel)q [%(channel_id)q]/Season %(upload_date>%Y)s/%(channel)q - S%(upload_date>%Y)sE%(upload_date>%m%d)s%(timestamp>%H%M%S)s - %(title)q [%(id)q].%(ext)q" \
         --paths "home:${HOME_DIR}" \
         --paths "temp:${TEMP_DIR}"  \
         --remux-video mkv \
@@ -518,7 +517,7 @@ function download_channel_metadata {
         --skip-download \
         -t sleep \
         --verbose \
-        --output "%(channel)s [%(channel_id)s]/%(title)s [%(channel_id)s]" \
+        --output "%(channel)q [%(channel_id)q]/%(title)q [%(channel_id)q]" \
         --playlist-items '0,0' \
         &> "${DOWNLOAD_CHANNEL_METADATA_LOG_FILE_PATH}"
     printf "Channel metadata for %s downloaded for %s channels using channel urls file %s\n\n" "${HOME_DIR}" "${CHANNEL_COUNT}" "${CHANNEL_LIST_URLS_FILE}"
