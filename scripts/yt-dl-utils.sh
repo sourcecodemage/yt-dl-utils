@@ -565,15 +565,12 @@ function update_unavailable_video_file {
     fi
     # Extract unavailable video error messages from the error log
     unavailable_video_files="$(grep -E "ERROR: \[youtube\] \w{11}:" "${DOWNLOAD_VIDEOS_LOG_FILE_PATH}" | sort -k 4 | cut -d' ' -f2,3,4-  | sed 's/[][]//g; s/://g')"   
-    # unavailable_video_files="$(grep -v "rate-limited" <<< "${unavailable_video_files}" || true)"   
-    # unavailable_video_files="$(grep -v "Please sign in." <<< "${unavailable_video_files}" || true)"   
-    # unavailable_video_files="$(grep -v "Sign in to confirm your age." <<< "${unavailable_video_files}" || true)"   
-    # unavailable_video_files="$(grep -v "HTTP Error 404" <<< "${unavailable_video_files}" || true)"   
     # add the unavailable video files to the UNAVAILABLE_FILE
     if [ -n "${unavailable_video_files}" ]; then
         printf "%s\n" "${unavailable_video_files}" >> "${VIDEO_UNAVAILABLE_FILE}"
         # make sure the VIDEO_UNAVAILABLE_FILE is unique and sorted
         sort -o "${VIDEO_UNAVAILABLE_FILE}" -u "${VIDEO_UNAVAILABLE_FILE}"
+        # sort by the error message field so videos with the same unavailable reason are kept together.
         sort -k 3 -o "${VIDEO_UNAVAILABLE_FILE}" "${VIDEO_UNAVAILABLE_FILE}"
         printf "Unavailable video files updated in %s\n\n" "${VIDEO_UNAVAILABLE_FILE}"
     else
