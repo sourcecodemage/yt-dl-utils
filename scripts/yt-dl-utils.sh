@@ -10,17 +10,15 @@ declare -a REPLACE_IN_METADATA_ARGS=(
 )
 
 function cleanup_temp_dir {
-    if [[ -n "${FIND_FILE:-}" && -f "${FIND_FILE}" ]]; then 
-        # first delete .DS_Store files
-        "${FIND_FILE}" "${TEMP_DIR}" -type f -mindepth 1 -name ".DS_Store" -delete
-        # Delete empty subdirectories
-        "${FIND_FILE}" "${TEMP_DIR}" -type d -mindepth 1 -delete -empty
-        if [ ! -z "$("${FIND_FILE}" "${TEMP_DIR}" -mindepth 1)" ]; then
-            printf "%s contains directories.\n" "${TEMP_DIR}"
-            return 1
-        fi
-        printf "%s has no subdirectories. Directory clean." "${TEMP_DIR}"
+    # first delete .DS_Store files
+    "${FIND_FILE}" "${TEMP_DIR}" -mindepth 1 -name ".DS_Store" -delete
+    # Delete empty subdirectories
+    "${FIND_FILE}" "${TEMP_DIR}" -type d -mindepth 1 -delete -empty
+    if [ ! -z "$("${FIND_FILE}" "${TEMP_DIR}" -mindepth 1)" ]; then
+        printf "%s is not empty after cleaning directories. Check folder for unfinished downloads.\n" "${TEMP_DIR}"
+        return 1
     fi
+    printf "%s has no subdirectories. Directory clean." "${TEMP_DIR}"
 }
 
 error_handler() {
@@ -39,9 +37,11 @@ function check_required_variables {
     printf "Checking that all required environment variables exist.\n"
     # List required environment variables
     required_vars=(
+        ACTION
         CHANNEL_LIST_URLS
         CHANNEL_UNAVAILABLE_FILE
         DOWNLOAD_ARCHIVE_FILE
+        ENV_FILE
         FIND_FILE
         HOME_DIR
         INVENTORY_FILE
@@ -58,6 +58,9 @@ function check_required_variables {
         # Check if variable is unset or empty
         if [[ -z "${!var:-}" ]]; then
             missing+=("$var")
+            printf "Environment variable %s is missing and is set to: %s\n" "$var" "${!var}"
+        else
+            printf "Environment variable %s exists and is set to: %s\n" "$var" "${!var}"
         fi
     done
 
@@ -153,7 +156,7 @@ function update_ytdlp {
 # check the batch file for malformed urls and return 1 if any are found, otherwise return 0
 function validate_batch_file {
 
-    # create array of every line in the batc file that is not a comment
+    # create array of every line in the batch file that is not a comment
     batch_file_lines=$(grep -v "^#" "${BATCH_FILE}")
     # remove any lines that are valid youtube video urls
     batch_file_lines=$(echo "${batch_file_lines}" | grep -vE "https://www.youtube.com/watch\?v=.{11}" || true)
@@ -249,7 +252,7 @@ function parse_arguments {
     # Loop through the array of variable names
     for var in "${required_arguments[@]}"; do
         # ${!var} uses indirect expansion to check the value of the variable named by $var
-        if [[ -z "${!var}" ]]; then
+        if [[ -z "${var}" ]]; then
             printf "Error: Required variable '%s' is not set or is empty." "$var"
             ((missing_count++))
         fi
@@ -281,7 +284,6 @@ function load_env {
 }
 
 function set_cookie_cmd {
-
     printf "Setting the cookie command...\n"
     COOKIE_ARGS=()
     if [[ -n "${COOKIES_FROM_FILE:-}" && -f "${COOKIES_FROM_FILE}" ]];then 
@@ -290,19 +292,14 @@ function set_cookie_cmd {
         COOKIE_ARGS=(--cookies-from-browser "${COOKIES_FROM_BROWSER}")
     fi
     printf "Cookie command set to %s\n\n" "${COOKIE_ARGS[*]}"
-
-
 }
 
 # generates a list of channel urls from the info.json files in the library
 function generate_channel_urls_file {
     printf "Generating fresh channel urls file at %s\n" "${CHANNEL_LIST_URLS}"
-    # clear the channel urls file before generating a new one
-    :> "${CHANNEL_LIST_URLS}"
-    # "${FIND_FILE}" "${HOME_DIR}" -mindepth 1 -maxdepth 1 -type d | "${GREP_FILE}" -oP "\[\KUC[^\]]+" > "${CHANNEL_LIST_URLS}"  
-    "${FIND_FILE}" "${HOME_DIR}" -mindepth 1 -maxdepth 1 -type d | "${GREP_FILE}" -oP "\[\KUC[^\]]+" | while read -r channel_id; do 
-        grep -v -f "${CHANNEL_UNAVAILABLE_FILE}" <<< "$channel_id" &>/dev/null && echo "https://www.youtube.com/channel/$channel_id" >> "${CHANNEL_LIST_URLS}"        
-    done 
+    readarray -t channel_ids < <("${FIND_FILE}" "${HOME_DIR}" -mindepth 1 -maxdepth 1  -name "*[UC*]*" -type d | sed -nE 's/.+\[(UC.+)\]$/\1/p')    
+    printf 'https://www.youtube.com/channel/%s\n' "${channel_ids[@]}" > "${CHANNEL_LIST_URLS}"
+    sort -u -o "${CHANNEL_LIST_URLS}" "${CHANNEL_LIST_URLS}"
     printf "Generated channel urls file at %s with %s entries!\n\n" "${CHANNEL_LIST_URLS}" "$(cat "${CHANNEL_LIST_URLS}" | wc -l)"
 }
 
@@ -327,8 +324,11 @@ function generate_download_archive {
 
 function generate_inventory_file {
     printf "Generating inventory file for library %s\n" "${HOME_DIR}"
-    "${FIND_FILE}" "${HOME_DIR}" -type f \( -name "*.mp4" -o -name "*.mkv" -o -name "*.webm" \) | sed -r 's/^.*\[(.*)\]\.(mp4|mkv|webm)$/\1/' | while read -r i;do echo "youtube ${i}";done > "${INVENTORY_FILE}"
-    printf "Inventory file for library %s created at %s\n\n" "${HOME_DIR}" "${INVENTORY_FILE}"
+    #"${FIND_FILE}" "${HOME_DIR}" \( -name "*.mp4" -o -name "*.mkv" -o -name "*.webm" \) | sed -r 's/^.*\[(.*)\]\.(mp4|mkv|webm)$/\1/' | while read -r i;do echo "youtube ${i}";done > "${INVENTORY_FILE}"
+    readarray -t video_ids < <("${FIND_FILE}" "${HOME_DIR}" -mindepth 3 -maxdepth 3 -name "*.mkv" | sed -nE 's/^.+\[(.{11})\]\.mkv/\1/p')
+    printf 'youtube %s\n' "${video_ids[@]}" > "${INVENTORY_FILE}"
+    sort -u -o "${INVENTORY_FILE}" "${INVENTORY_FILE}"
+    printf "Inventory file for library %s created at %s with %s entries.\n\n" "${HOME_DIR}" "${INVENTORY_FILE}" "${#video_ids[@]}"
 }   
 
 function generate_wanted_list {
@@ -336,7 +336,7 @@ function generate_wanted_list {
     if [[ -n "${WANTED_HOME_DIR:-}" ]]; then
         # create wanted list
         printf "Generating Wanted list for wanted library %s\n" "${WANTED_HOME_DIR}"
-        "${FIND_FILE}" "${WANTED_HOME_DIR}" -type f \( -name "*.mp4" -o -name "*.mkv" -o -name "*.webm" \) | sed -r 's/^.*\[(.*)\]\.(mp4|mkv|webm)$/\1/' | while read -r i;do echo "youtube ${i}";done > "${WANTED_LIST_FILE}"
+        "${FIND_FILE}" "${WANTED_HOME_DIR}" \( -name "*.mp4" -o -name "*.mkv" -o -name "*.webm" \) | sed -r 's/^.*\[(.*)\]\.(mp4|mkv|webm)$/\1/' | while read -r i;do echo "youtube ${i}";done > "${WANTED_LIST_FILE}"
         # Create download batch list that equals wanted list - inventory list - blacklist
         printf "Generating wanted batch list file  %s\n" "${WANTED_BATCH_LIST_FILE}"
         grep -v -f "${BLACKLIST_FILE}" "${WANTED_LIST_FILE}" > "${WANTED_BATCH_LIST_FILE}" || true
@@ -384,8 +384,8 @@ function download_videos {
         --embed-chapters \
         --compat-options allow-unsafe-exec-expansion \
         --ffmpeg-location "${FFMPEG_LOCATION}"  \
-        --exec "echo '%(channel_url)q' | grep -v -f ${CHANNEL_LIST_URLS} >> ${CHANNEL_URLS_LIST_TMP_FILE} || true" \
-        --exec "${TOUCH_FILE} -t '%(upload_date)q0000' '%(filepath)q'" \
+        --exec "post_process:echo '%(channel_url)s' | grep -v -f ${CHANNEL_LIST_URLS} >> ${CHANNEL_URLS_LIST_TMP_FILE} || true" \
+        --exec "post_process:${TOUCH_FILE} -t '%(upload_date)s0000' '%(filepath)s'" \
         --force-overwrites  \
         --ignore-no-formats-error \
         --js-runtimes "deno:/opt/homebrew/bin/deno" \
@@ -403,7 +403,7 @@ function download_videos {
         --no-quiet  \
         --no-warnings \
         --no-write-playlist-metafiles \
-        --output "%(channel)q [%(channel_id)q]/Season %(upload_date>%Y)s/%(channel)q - S%(upload_date>%Y)sE%(upload_date>%m%d)s%(timestamp>%H%M%S)s - %(title)q [%(id)q].%(ext)q" \
+        --output "%(channel)s [%(channel_id)s]/%(title)s [%(id)s].%(ext)s" \
         --paths "home:${HOME_DIR}" \
         --paths "temp:${TEMP_DIR}"  \
         --remux-video mkv \
@@ -425,7 +425,7 @@ function download_videos {
         return 1
     fi
     # count the number of videos in the library after the download is complete
-    YOUTUBE_LIBRARY_COUNT_END=$(wc -l < "${DOWNLOAD_ARCHIVE_FILE}")
+    YOUTUBE_LIBRARY_COUNT_END=$(wc -l < "${INVENTORY_FILE}")
     printf "Post download: Your Youtube library has %s videos. %s were added in this run.\n\n" " ${YOUTUBE_LIBRARY_COUNT_END}" "$(( YOUTUBE_LIBRARY_COUNT_END - YOUTUBE_LIBRARY_COUNT_START ))"
     return 0
 }
@@ -449,7 +449,7 @@ function download_video_metadata {
         --embed-chapters \
         --compat-options allow-unsafe-exec-expansion \
         --ffmpeg-location "${FFMPEG_LOCATION}"  \
-        --exec "${TOUCH_FILE} -t '%(upload_date)q0000' '%(filepath)q'" \
+        --exec "post_process:${TOUCH_FILE} -t '%(upload_date)s0000' '%(filepath)s'" \
         --force-overwrites  \
         --js-runtimes "deno:/opt/homebrew/bin/deno" \
         --js-runtimes "node:/opt/homebrew/bin/node" \
@@ -467,7 +467,7 @@ function download_video_metadata {
         --no-quiet  \
         --no-warnings \
         --no-write-playlist-metafiles \
-        --output "%(channel)q [%(channel_id)q]/Season %(upload_date>%Y)s/%(channel)q - S%(upload_date>%Y)sE%(upload_date>%m%d)s%(timestamp>%H%M%S)s - %(title)q [%(id)q].%(ext)q" \
+        --output "%(channel)s [%(channel_id)s]/%(title)s [%(id)s].%(ext)s" \
         --paths "home:${HOME_DIR}" \
         --paths "temp:${TEMP_DIR}"  \
         --remux-video mkv \
@@ -517,7 +517,7 @@ function download_channel_metadata {
         --skip-download \
         -t sleep \
         --verbose \
-        --output "%(channel)q [%(channel_id)q]/%(title)q [%(channel_id)q]" \
+        --output "%(channel)s [%(channel_id)s]/%(title)s [%(channel_id)s]" \
         --playlist-items '0,0' \
         &> "${DOWNLOAD_CHANNEL_METADATA_LOG_FILE_PATH}"
     printf "Channel metadata for %s downloaded for %s channels using channel urls file %s\n\n" "${HOME_DIR}" "${CHANNEL_COUNT}" "${CHANNEL_LIST_URLS_FILE}"
@@ -564,11 +564,11 @@ function update_unavailable_video_file {
         return 1
     fi
     # Extract unavailable video error messages from the error log
-    unavailable_video_files="$(grep -E "ERROR:.*" "${DOWNLOAD_VIDEOS_LOG_FILE_PATH}" | sort -k 4 | cut -d' ' -f2,3,4-  | sed 's/[][]//g; s/://g')"   
-    unavailable_video_files="$(grep -v "rate-limited" <<< "${unavailable_video_files}" || true)"   
-    unavailable_video_files="$(grep -v "Please sign in." <<< "${unavailable_video_files}" || true)"   
-    unavailable_video_files="$(grep -v "Sign in to confirm your age." <<< "${unavailable_video_files}" || true)"   
-    unavailable_video_files="$(grep -v "HTTP Error 404" <<< "${unavailable_video_files}" || true)"   
+    unavailable_video_files="$(grep -E "ERROR: \[youtube\] \w{11}:" "${DOWNLOAD_VIDEOS_LOG_FILE_PATH}" | sort -k 4 | cut -d' ' -f2,3,4-  | sed 's/[][]//g; s/://g')"   
+    # unavailable_video_files="$(grep -v "rate-limited" <<< "${unavailable_video_files}" || true)"   
+    # unavailable_video_files="$(grep -v "Please sign in." <<< "${unavailable_video_files}" || true)"   
+    # unavailable_video_files="$(grep -v "Sign in to confirm your age." <<< "${unavailable_video_files}" || true)"   
+    # unavailable_video_files="$(grep -v "HTTP Error 404" <<< "${unavailable_video_files}" || true)"   
     # add the unavailable video files to the UNAVAILABLE_FILE
     if [ -n "${unavailable_video_files}" ]; then
         printf "%s\n" "${unavailable_video_files}" >> "${VIDEO_UNAVAILABLE_FILE}"
@@ -762,7 +762,7 @@ case "${ACTION}" in
         fi
         ;;
     *)  
-        printf "Action not %s not recognized. Exiting...\n" "${ACTION}"
+        printf "Action %s not recognized. Exiting...\n" "${ACTION}"
         print_help
         exit 1
         ;;
