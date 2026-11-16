@@ -1,15 +1,29 @@
 package cmd
 
-import ()
+import (
+	"github.com/alecthomas/kong"
+)
 
-// Globals holds persistent flags available to every subcommand.
-type Globals struct {
-	Verbose        bool   `short:"v" help:"Enable detailed output." optional:"" default:"false"`
-	ConfigFilePath string `short:"c" help:"Path to the config file" required:"" default:""`
+type Config struct {
+	BatchFile              string `help:"Path to file containing youtube video urls."`
+	ChannelListFile        string `help:"Path to file containing list of youtube channel urls."`
+	ChannelUnavailableFile string `help:"Path to file containing list of unavailable youtube channel urls."`
+	CookiesFile            string `help:"Path to file containing netscape formatted cookies for youtube authorization."`
+	CookiesFromBrowserDir  string `help:"Path to Firefox user profile to source youtube authentication cookies from."`
+	DownloadArchiveFile    string `help:"Path to download archive file."`
+	FfmpegFile             string `help:"Path to ffmpeg binary for video and audio processing."`
+	HomeDir                string `help:"Path to the youtube library root directory."`
+	VideoInventoryFile     string `help:"Path to the youtube library inventory file."`
+	ListDir                string `help:"Path to the youtube lists folder."`
+	LogDir                 string `help:"Path to the youtube log directory."`
+	TempDir                string `help:"Path to the temporary directory for downloads."`
+	VideoBlacklistFile     string `help:"Path to file containing list of unwanted youtube video ids."`
+	VideoUnavailableFile   string `help:"Path to file containing list of unavailable youtube video ids."`
+	YtdlpFile              string `help:"Path to ffmpeg binary for video and audio processing."`
 }
 
 type CLI struct {
-	Globals
+	Config                  kong.ConfigFlag            `short:"c" help:"Path to configuration file."`
 	CreateNFO               CreateNFOCmd               `cmd:"" help:"Create NFO files for videos and shows from info.json data."`
 	DownloadVideos          DownloadVideosCmd          `cmd:"" help:"Download youtube videos and their metadata to the DstDir"`
 	DownloadVideoMetadata   DownloadVideoMetadataCmd   `cmd:"" help:"Downloads youtube video metadata."`
