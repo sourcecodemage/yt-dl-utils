@@ -2,13 +2,6 @@
 set -e -u -E -o pipefail -o functrace
 shopt -s inherit_errexit
 
-declare -a REPLACE_IN_METADATA_ARGS=(
-        '--replace-in-metadata channel,title "/" "⧸"'
-        '--replace-in-metadata channel,title "\?" ""'
-        '--replace-in-metadata channel,title ":" "-"'
-        '--replace-in-metadata channel,title "\*" ""'
-)
-
 function cleanup_temp_dir {
     # first delete .DS_Store files
     "${FIND_FILE}" "${TEMP_DIR}" -mindepth 1 -name ".DS_Store" -delete
