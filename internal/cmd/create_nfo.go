@@ -16,7 +16,7 @@ func (c *CreateNFOCmd) Run(cli *CLI) error {
 
 	fmt.Println("Create NFO command selected.")
 	creator := &usecase.NFOCreator{}
-	if err := creator.Execute(cli.home_dir, cli.Force); err != nil {
+	if err := creator.Execute(cli.HomeDir, c.Force); err != nil {
 		return fmt.Errorf("generate NFO files: %w", err)
 	}
 	fmt.Println("nfo command completed successfully.")

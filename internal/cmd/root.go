@@ -4,9 +4,9 @@ import (
 	"github.com/alecthomas/kong"
 )
 
-type Config struct {
+type Globals struct {
 	BatchFile              string `help:"Path to file containing youtube video urls."`
-	ChannelListFile        string `help:"Path to file containing list of youtube channel urls."`
+	ChannelInventoryFile   string `help:"Path to file containing list of youtube channel urls."`
 	ChannelUnavailableFile string `help:"Path to file containing list of unavailable youtube channel urls."`
 	CookiesFile            string `help:"Path to file containing netscape formatted cookies for youtube authorization."`
 	CookiesFromBrowserDir  string `help:"Path to Firefox user profile to source youtube authentication cookies from."`
@@ -20,10 +20,12 @@ type Config struct {
 	VideoBlacklistFile     string `help:"Path to file containing list of unwanted youtube video ids."`
 	VideoUnavailableFile   string `help:"Path to file containing list of unavailable youtube video ids."`
 	YtdlpFile              string `help:"Path to ffmpeg binary for video and audio processing."`
+	Verbose                bool   `help:"Include debugging messages in output." default:"false"`
 }
 
 type CLI struct {
-	Config                  kong.ConfigFlag            `short:"c" help:"Path to configuration file."`
+	Config kong.ConfigFlag `short:"c" help:"Path to configuration file."`
+	Globals
 	CreateNFO               CreateNFOCmd               `cmd:"" help:"Create NFO files for videos and shows from info.json data."`
 	DownloadVideos          DownloadVideosCmd          `cmd:"" help:"Download youtube videos and their metadata to the DstDir"`
 	DownloadVideoMetadata   DownloadVideoMetadataCmd   `cmd:"" help:"Downloads youtube video metadata."`
