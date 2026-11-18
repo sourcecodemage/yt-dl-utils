@@ -1,7 +1,7 @@
 package main
 
 import (
-	"log"
+	// "log"
 
 	"github.com/alecthomas/kong"
 	"github.com/sourcecodemage/yt-dl-utils/internal/cmd"
@@ -16,16 +16,9 @@ func main() {
 		kong.Name("yt-dl-utils"),
 		kong.Description("A CLI wrapper to provide extra functionality to yt-dlp."),
 		kong.UsageOnError(),
+		kong.Bind(&cli.Globals),
 	)
 
-	// if command.ConfigFilePath != "" {
-	// 	appConfig := config.AppConfig{}
-	// 	if err := appConfig.New(command.ConfigFilePath); err != nil {
-	// 		log.Fatalf("failed to load application configuration: %v", err)
-	// 	}
-	// }
-	ctx.Bind(&cli)
-	if err := ctx.Run(); err != nil {
-		log.Fatal(err)
-	}
+	err := ctx.Run()
+	ctx.FatalIfErrorf(err)
 }
