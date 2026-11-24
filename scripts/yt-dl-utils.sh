@@ -412,6 +412,12 @@ function download_videos {
         --write-thumbnail \
         --convert-thumbnails jpg \
         &> "${DOWNLOAD_VIDEOS_LOG_FILE_PATH}"
+    download_status=$?
+
+    if (( download_status != 0)) && ! tail -1 logs/yt-dl-utils.sh.download_videos.log | ggrep "\[download\]"; then
+        printf "Error: Downloading videos failed with exit status %s.\n" "${download_status}"
+        return "${download_status}"
+    fi        
     # update the inventory file after the download is complete
     if ! generate_inventory_file; then 
         printf "Error: Generating inventory file failed. Exiting...\n\n"
@@ -476,6 +482,13 @@ function download_video_metadata {
         --write-thumbnail \
         --convert-thumbnails jpg \
         &> "${DOWNLOAD_VIDEO_METADATA_LOG_FILE_PATH}"
+    # download_status=$?
+
+    # if (( download_status != 0)); then
+    #     printf "Error: Downloading videos failed with exit status %s.\n" "${download_status}"
+    #     return "${download_status}"
+    # fi        
+
     printf "Video file metadata downloaded!\n\n"
 }
 
@@ -513,6 +526,13 @@ function download_channel_metadata {
         --output "%(channel)s [%(channel_id)s]/%(title)s [%(channel_id)s]" \
         --playlist-items '0,0' \
         &> "${DOWNLOAD_CHANNEL_METADATA_LOG_FILE_PATH}"
+    # download_status=$?
+
+    # if (( download_status != 0)); then
+    #     printf "Error: Downloading videos failed with exit status %s.\n" "${download_status}"
+    #     return "${download_status}"
+    # fi        
+
     printf "Channel metadata for %s downloaded for %s channels using channel urls file %s\n\n" "${HOME_DIR}" "${CHANNEL_COUNT}" "${CHANNEL_LIST_URLS_FILE}"
     return 0
 }
