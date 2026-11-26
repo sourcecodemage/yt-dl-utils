@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
+	"hash/fnv"
 	"os"
 	"path/filepath"
 	"slices"
@@ -24,6 +25,15 @@ type videoInfoJson struct {
 	Epoch       int64    `json:"epoch"`
 	Tags        []string `json:"tags"`
 	Categories  []string `json:"categories"`
+}
+
+// createEpisodeId create hash of video id , truncates it to 5 digits, and returns it and an error.
+func createEpisodeId(id string) (int, error) {
+	h := fnv.New32a()
+	h.Write([]byte(id))
+	// Map the 32-bit hash into the range [10000, 99999]
+	return int(h.Sum32()%90000) + 10000, nil
+
 }
 
 // <title> 	Episode title
@@ -47,10 +57,8 @@ type episodeXML struct {
 }
 
 func createEpisodeNfoFile(video_infojson *videoInfoJson, nfo_file string) error {
-	// timestamp := time.Unix(video_infojson.Timestamp, 0)
-	// season_string := timestamp.Format("2006")      // Use the year as the season string
-	// episode_string := timestamp.Format("01021504") // Use the MMDDHHMMSS as the episode string
-	// aired_string := timestamp.Format("2006-01-02") // Format the aired date as YYYY-MM-DD
+	fmt.Printf("Creating Episode NFO file: %s\n", nfo_file)
+
 	// prepare to create new files with the name path and filename
 	loc, _ := time.LoadLocation("America/Denver")
 	uploadTime, err := time.ParseInLocation("20060102", video_infojson.Upload_date, loc)
@@ -58,10 +66,16 @@ func createEpisodeNfoFile(video_infojson *videoInfoJson, nfo_file string) error 
 		return fmt.Errorf("Error parsing date: %v", err)
 	}
 	year, month, day := uploadTime.Date()
-	hour, minute, second := time.Unix(video_infojson.Timestamp, 0).In(loc).Clock()
-	season_string := fmt.Sprintf("%d", int(year))                                                     // Use the year as the season string
-	episode_string := fmt.Sprintf("%02d%02d%02d%02d%02d", int(month), int(day), hour, minute, second) // Use the MMDDHHMMSS as the episode string
-	aired_string := uploadTime.Format("2006-01-02")                                                   // Format the aired date as YYYY-MM-DD
+	// hour, minute, second := time.Unix(video_infojson.Timestamp, 0).In(loc).Clock()
+	season_string := fmt.Sprintf("%d", int(year)) // Use the year as the season string
+	// generate a unique episode id from the video id. This id is for ordering videos that were uploaded on the same date. Since upload has a date but not a time, we have to make up an determinstic values.
+	// in Plex, the episode field is limited to 9 chars. So episode is MMDD + 5 digit episode id.
+	episode_id, err := createEpisodeId(video_infojson.Id)
+	if err != nil {
+		return fmt.Errorf("Error generating episode id: %v", err)
+	}
+	episode_string := fmt.Sprintf("%02d%02d%05d", int(month), int(day), episode_id) // Use the MMDDHHMMSS as the episode string
+	aired_string := uploadTime.Format("2006-01-02")                                 // Format the aired date as YYYY-MM-DD
 	safe_video_title := safeString(video_infojson.Title)
 
 	xmlData := episodeXML{
@@ -87,14 +101,69 @@ func createEpisodeNfoFile(video_infojson *videoInfoJson, nfo_file string) error 
 		return err
 	}
 
-	fmt.Println("XML file created successfully")
+	fmt.Printf("Created Episode NFO file: %s succcessfully.\n", nfo_file)
 	return nil
 }
 
-type channelInfoJson struct {
-	Id          string `json:"id"`          // unique channel id
-	Title       string `json:"title"`       //title
-	Description string `json:"description"` //plot
+// createEpisodeNfoFiles uses info.json file to generate episode information and create an episode nfo file. Returns error if there is an issue.
+func createEpisodeNfoFiles(root_dir string, force bool) error {
+	// find video info json files
+	infojson_files, err := findFiles(root_dir, `^.+\s\[\w{11}\]\.info\.json$`)
+	if err != nil {
+		return fmt.Errorf("Error finding info.json files. Error: %v", err)
+	}
+	err = nil
+
+	// Get list of existing video nfo files to avoid overwriting unless necessary
+	nfo_files, err := findFiles(root_dir, `^.+\s\[\w{11}\]\.nfo$`)
+	if err != nil {
+		return fmt.Errorf("Error finding nfo files. Error: %v", err)
+	}
+
+	// Find all video files
+	video_files, err := findFiles(root_dir, ".mkv")
+	if err != nil {
+		return fmt.Errorf("Error finding video files. Error: %v", err)
+	}
+
+	for _, infojson_file := range infojson_files {
+		// make sure there is a matching video file.
+		infojson_basename := filepath.Base(infojson_file)
+		infojson_dir := filepath.Dir(infojson_file)
+		idx := strings.IndexByte(infojson_basename, '.')
+		infojson_rootname := infojson_basename[:idx]
+		infojson_videofile_path := filepath.Join(infojson_dir, infojson_rootname+".mkv")
+		if !slices.Contains(video_files, infojson_videofile_path) {
+			continue
+		}
+		// read the video infojson file
+		data, err := os.ReadFile(infojson_file)
+		if err != nil {
+			fmt.Printf("Error reading info.json file %s: %v\n", infojson_file, err)
+			return err
+		}
+		if len(data) == 0 {
+			return fmt.Errorf("info.json file %s is empty", infojson_file)
+		}
+		// create struct containing video infojson data
+		video_infojson := videoInfoJson{}
+		err = json.Unmarshal(data, &video_infojson)
+		if err != nil {
+			return err
+		}
+		nfo_file := strings.TrimSuffix(infojson_file, ".info.json") + ".nfo"
+		if slices.Contains(nfo_files, nfo_file) && force == false {
+			fmt.Printf("NFO file already exists: %s. Skipping creation.\n", nfo_file)
+			continue
+		}
+
+		// Create episode NFO file from video_infojson struct
+		err = createEpisodeNfoFile(&video_infojson, nfo_file)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // <title> 	Series title
@@ -107,8 +176,13 @@ type channelInfoJson struct {
 // <uniqueid> 	External ID with type attribute
 // <namedseason> 	Custom season name with number attribute
 // <actor> 	Cast member, containing <name>, <role>, <order>, <thumb>
+type channelInfoJson struct {
+	Id          string `json:"id"`          // unique channel id
+	Title       string `json:"title"`       //title
+	Description string `json:"description"` //plot
+}
 
-type tvshowXML struct {
+type showXML struct {
 	XMLName xml.Name `xml:"tvshow"`
 	Id      string   `xml:"id"`
 	Title   string   `xml:"title"`
@@ -116,118 +190,119 @@ type tvshowXML struct {
 	Studio  string   `xml:"studio"`
 }
 
-func createTVShowNfoFile(channel_infojson *channelInfoJson, nfo_file string) error {
-	safe_channel_name := safeString(channel_infojson.Title)
-
-	xmlData := tvshowXML{
+func createShowNfoFile(channel_infojson *channelInfoJson, nfo_file string) error {
+	fmt.Printf("Creating Show NFO file '%s'.\n", nfo_file)
+	xmlData := showXML{
 		Id:     channel_infojson.Id, // You can set this to a unique ID if needed
-		Title:  safe_channel_name,
+		Title:  channel_infojson.Title,
 		Plot:   channel_infojson.Description,
 		Studio: "Youtube",
 	}
-	_, err := os.Stat(nfo_file)
+	// nfo file does not exist, try to create the nfo file
+	file, err := os.Create(nfo_file)
 	if err != nil {
-		// nfo file does not exist, try to create the nfo file
-		file, err := os.Create(nfo_file)
-		if err != nil {
-			return err
-		}
-		defer file.Close()
+		return err
+	}
+	defer file.Close()
 
-		encoder := xml.NewEncoder(file)
-		encoder.Indent("", " ")
+	encoder := xml.NewEncoder(file)
+	encoder.Indent("", " ")
 
-		err = encoder.Encode(xmlData)
-		if err != nil {
-			return err
-		}
-		fmt.Printf("XML file %s created successfully\n", nfo_file)
+	err = encoder.Encode(xmlData)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Created Show NFO file '%s' successfully.\n", nfo_file)
+
+	return nil
+}
+
+func createShowNfoFiles(root_dir string, force bool) error {
+	// find show info json files
+	infojson_files, err := findFiles(root_dir, `^.+\s\[UC\w{22}\]\.info\.json$`)
+	if err != nil {
+		return fmt.Errorf("Error finding show info.json files. Error: %v", err)
+	}
+	err = nil
+
+	// Get list of existing tvshow nfo files to avoid overwriting unless necessary
+	nfo_files, err := findFiles(root_dir, `^tvshow\.nfo$`)
+	if err != nil {
+		return fmt.Errorf("Error finding show nfo files. Error: %v", err)
 	}
 
-	// Create show poster file if it does not exist.
-	path := filepath.Dir(nfo_file)
-	incorrect_poster_file_path := filepath.Join(path, fmt.Sprintf("%s [%s].jpg", channel_infojson.Title, channel_infojson.Id))
-	correct_poster_file_path := filepath.Join(path, "show.jpg")
-	_, err = os.Stat(correct_poster_file_path)
-	if err != nil {
-		// show.jpg file does not exist, try to create the show file
-		_, err = os.Stat(incorrect_poster_file_path)
-		if err == nil {
-			err = copyFile(incorrect_poster_file_path, correct_poster_file_path)
-			if err != nil {
-				fmt.Printf("Error copying poster file %s to %s: %v\n", incorrect_poster_file_path, correct_poster_file_path, err)
-				return err
-			}
+	if force == false {
+		infojson_files = slices.DeleteFunc(infojson_files, func(s string) bool {
+			dir := filepath.Dir(s)
+			newpath := filepath.Join(dir, "tvshow.nfo")
+			return slices.Contains(nfo_files, newpath)
+		})
+	}
+
+	for _, infojson_file := range infojson_files {
+		// read the show infojson file
+		data, err := os.ReadFile(infojson_file)
+		if err != nil {
+			return fmt.Errorf("Error reading show info.json file %s: %v\n", infojson_file, err)
+		}
+		if len(data) == 0 {
+			return fmt.Errorf("show info.json file %s is empty", infojson_file)
+		}
+		// create path for show nfo file
+		path := filepath.Dir(infojson_file)
+		nfo_file := filepath.Join(path, "tvshow.nfo")
+
+		channel_infojson := &channelInfoJson{}
+		err = json.Unmarshal(data, &channel_infojson)
+		if err != nil {
+			return err
+		}
+		// Create tv show nfo file
+		err = createShowNfoFile(channel_infojson, nfo_file)
+		if err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
-func createNfoFiles(infojson_files []string, nfo_files []string, force bool) error {
-	for _, infojson_file := range infojson_files {
-		data, err := os.ReadFile(infojson_file)
+func createShowThumbnailFile(file_path string) error {
+	// get the parent dir of the channel thumbnail files
+	dir := filepath.Dir(file_path)
+	// determine the show thumbnail file path
+	show_thumbnail_file := filepath.Join(dir, "show.jpg")
+	err := copyFile(file_path, show_thumbnail_file)
+	if err != nil {
+		return fmt.Errorf("Error copying channel thumbnail file from %s to %s: %v\n", file_path, show_thumbnail_file, err)
+	}
+	return nil
+}
+
+func createShowThumbnailFiles(root_dir string, force bool) error {
+	// Find channel thumbnail files which we'll copy to show.jpg
+	channel_thumbnail_files, err := findFiles(root_dir, `^.+\s\[UC\w{22}\]\.jpg$`)
+	if err != nil {
+		return fmt.Errorf("Error finding channel thumbnail files. Error: %v", err)
+	}
+	err = nil
+
+	// Get list of existing show thumbnail files to avoid overwriting unless necessary
+	show_thumbnail_files, err := findFiles(root_dir, `^show\.jpg$`)
+	if err != nil {
+		return fmt.Errorf("Error finding show thumbnail files files. Error: %v", err)
+	}
+	// remove channel thumbnail files from list if the show.jpg already exists
+	if force == false {
+		channel_thumbnail_files = slices.DeleteFunc(channel_thumbnail_files, func(s string) bool {
+			dir := filepath.Dir(s)
+			newpath := filepath.Join(dir, "show.jpg")
+			return slices.Contains(show_thumbnail_files, newpath)
+		})
+	}
+	for _, channel_thumbnail_file := range channel_thumbnail_files {
+		err = createShowThumbnailFile(channel_thumbnail_file)
 		if err != nil {
-			fmt.Printf("Error reading info.json file %s: %v\n", infojson_file, err)
-			return err
-		}
-		if len(data) == 0 {
-			fmt.Printf("Error: info.json file %s is empty\n", infojson_file)
-			return fmt.Errorf("info.json file %s is empty", infojson_file)
-		}
-		var dataMap map[string]any
-		err = json.Unmarshal(data, &dataMap)
-		if err != nil {
-			return err
-		}
-		// var id_string string
-		id_string, ok := dataMap["id"].(string)
-		if !ok {
-			return fmt.Errorf("Failed to read infojson id field. File: %s", infojson_file)
-		}
-		_, hasFormats := dataMap["formats"]
-		// video infojson has video formats
-		if hasFormats {
-			nfo_file := strings.TrimSuffix(infojson_file, ".info.json") + ".nfo"
-			if slices.Contains(nfo_files, nfo_file) && force == false {
-				fmt.Printf("NFO file already exists: %s. Skipping creation.\n", nfo_file)
-				continue
-			}
-			fmt.Printf("Creating NFO file: %s\n", nfo_file)
-
-			// Create Video file NFO file
-			video_infojson := &videoInfoJson{}
-			err = json.Unmarshal(data, &video_infojson)
-			if err != nil {
-				return err
-			}
-			err = createEpisodeNfoFile(video_infojson, nfo_file)
-			if err != nil {
-				return err
-			}
-			// channel infojson file have a follower count
-		} else if strings.HasPrefix(id_string, "UC") {
-			path, _ := filepath.Split(infojson_file)
-			nfo_file := filepath.Join(path, "tvshow.nfo")
-			if slices.Contains(nfo_files, nfo_file) && force == false {
-				fmt.Printf("NFO file already exists: %s. Skipping creation.\n", nfo_file)
-				continue
-			}
-
-			// Create tv nfo file
-			channel_infojson := &channelInfoJson{}
-			err = json.Unmarshal(data, &channel_infojson)
-			if err != nil {
-				return err
-			}
-			err = createTVShowNfoFile(channel_infojson, nfo_file)
-			if err != nil {
-				return err
-			}
-
-		} else {
-			// print error if file type is not recognized. but keep going.
-			// return fmt.Errorf("Unrecognized infojson file type: '%s'. id: '%s' \n", infojson_file, id_string)
-			fmt.Printf("Unrecognized infojson file type: '%s'. id: '%s' \n", infojson_file, id_string)
+			return fmt.Errorf("Error creating thumbnail file. Error: %v", err)
 		}
 	}
 	return nil
@@ -238,19 +313,22 @@ type NFOCreator struct {
 }
 
 func (u *NFOCreator) Execute(root_dir string, force bool) error {
-	infojson_files, err := findFiles(root_dir, "info.json")
+
+	// Create episode NFO files
+	err := createEpisodeNfoFiles(root_dir, force)
 	if err != nil {
-		return fmt.Errorf("Error finding info.json files. Error: %v", err)
+		return fmt.Errorf("Error creating Episode NFO files. Error: %v", err)
 	}
-	// Get list of existing nfo files to avoid overwriting unless necessary
-	nfo_files, err := findFiles(root_dir, ".nfo")
+	// Create episode NFO files
+	err = createShowNfoFiles(root_dir, force)
 	if err != nil {
-		return fmt.Errorf("Error finding nfo files. Error: %v", err)
+		return fmt.Errorf("Error creating Show NFO files. Error: %v", err)
 	}
 
-	err = createNfoFiles(infojson_files, nfo_files, force)
+	// Create show thumbnail filesfiles
+	err = createShowThumbnailFiles(root_dir, force)
 	if err != nil {
-		return fmt.Errorf("Error creating NFO files. Error: %v", err)
+		return fmt.Errorf("Error creating Show thumbnail files. Error: %v", err)
 	}
 	return nil
 }

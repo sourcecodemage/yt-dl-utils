@@ -12,11 +12,11 @@ type CreateNFOCmd struct {
 }
 
 // Run is automatically invoked by Kong when the create-nfo command is selected.
-func (c *CreateNFOCmd) Run(cli *CLI) error {
+func (cmd *CreateNFOCmd) Run(cli *CLI) error {
 
 	fmt.Println("Create NFO command selected.")
 	creator := &usecase.NFOCreator{}
-	if err := creator.Execute(cli.HomeDir, c.Force); err != nil {
+	if err := creator.Execute(cli.HomeDir, cmd.Force); err != nil {
 		return fmt.Errorf("generate NFO files: %w", err)
 	}
 	fmt.Println("nfo command completed successfully.")

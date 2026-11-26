@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 )
@@ -51,19 +52,33 @@ func safeString(input string) string {
 
 }
 
-// findFiles performs resursive search from root_dir_path down for files with extension.
+// findFiles performs resursive search from root_dir_path down for files matching regular expression.
+// Hidden directories and files are skipped
 // Returns a string slice of complete file paths
-func findFiles(root_dir_path, file_extension string) ([]string, error) {
+func findFiles(root_dir_path, file_regexp string) ([]string, error) {
 	var matches []string
 
 	err := filepath.WalkDir(root_dir_path, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err // Stop walking if a directory cannot be read
+		// Check for hidden files and directories (starting with a dot)
+		if strings.HasPrefix(d.Name(), ".") {
+			if d.IsDir() {
+				return filepath.SkipDir // Skip the entire directory
+			}
+			return nil // Skip the hidden file
 		}
 
 		// Check if it's a file and matches the target extension. Excludes apple nfo metadata files starting with "._" and other hidden files.
-		if !d.IsDir() && strings.HasSuffix(strings.ToLower(path), file_extension) && !strings.HasPrefix(filepath.Base(path), "._") {
-			matches = append(matches, path)
+		// if !d.IsDir() && strings.HasSuffix(strings.ToLower(path), file_extension) {
+		// if !d.IsDir() && strings.HasSuffix(strings.ToLower(path), file_extension) && !strings.HasPrefix(filepath.Base(path), "._") {
+		if !d.IsDir() {
+			match, err := regexp.MatchString(file_regexp, path)
+			if err != nil {
+				return err // Stop walking if a directory cannot be read
+			}
+
+			if match {
+				matches = append(matches, path)
+			}
 		}
 
 		return nil
